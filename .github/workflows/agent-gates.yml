@@ -25,11 +25,13 @@ jobs:
           PYTHONPATH: .github/hooks
         run: python3 -m unittest discover -s .github/hooks/tests
 
-      # Ticket folder, tier floor, slice size and paths, plan and review structure.
+      # Ticket folder, tier floor, slice size and paths, plan and review structure,
+      # and, once the pull request is no longer a draft, a diff review of the current code.
       # If an API breaking-change detector runs earlier in your pipeline, pass
       # --breaking-api-change when it reports one.
       - name: Workflow gates
         env:
           PYTHONPATH: .github/hooks
           BASE_REF: ${{ github.base_ref }}
-        run: python3 -m agentwf ci --base "origin/$BASE_REF"
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: python3 -m agentwf ci --base "origin/$BASE_REF" $([ "$DRAFT" = "false" ] && echo --ready)

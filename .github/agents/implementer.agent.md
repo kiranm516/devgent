@@ -50,8 +50,10 @@ you continue. Do not work around the plan.
 ## Fix rounds
 
 When the reviewer reports findings, the driver restarts the slice (`./agentwf slice start S-nn`). Fix only
-the findings marked for fixing. There are at most two fix rounds; after that the open findings go
-to the human.
+the findings whose Action is `fix`, and the `decide` findings a human marked `fix` in Status. A
+human decision outranks a finding: if a fix would reverse a decision-list answer, a disposition or
+a "won't fix", stop and log a `mismatch`. There are at most two fix rounds; after that the open
+findings go to the human.
 
 ## Never
 

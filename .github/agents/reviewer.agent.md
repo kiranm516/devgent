@@ -43,11 +43,30 @@ changes, not only the diff. Make these passes, in order:
 3. **Security**: use the `secure-api-review` skill. For T2 this pass is mandatory and complete.
 4. **Test quality**: tests assert the plan's scenarios; they would fail if the behaviour broke.
 5. **Compatibility**: API, schema, events and configuration stay compatible unless the plan says otherwise.
+6. **Documentation**: the README, OpenAPI description, changelog and configuration reference still
+   describe what the code now does. A stale statement is a finding: cite the line and what a
+   reader who follows it gets wrong.
 
-Add a `### Round n` table under `## Diff findings`. Each finding states: severity (blocker, major,
-minor), file and line, the concrete failure scenario (input and state leading to the wrong
-result), the recommended fix, and whether it is a verified `defect` or a `question`. If you cannot
-describe a concrete failure, it is a question or it is nothing. Style preferences are not findings.
+Add a `### Round n` table under `## Diff findings`, and above the table the line
+`Reviewed head: <commit>` with the output of `git rev-parse HEAD`. CI fails the `review` gate when
+the code changes after that commit, so every fix round needs a new round from you.
+
+Each finding states: severity (blocker, major, minor), file and line, the concrete failure
+scenario (input and state leading to the wrong result), the recommended fix, whether it is a
+verified `defect` or a `question`, and an action. If you cannot describe a concrete failure, it is
+a question or it is nothing. Style preferences are not findings.
+
+- Action `fix`: there is one correct fix and it changes no planned behaviour and no human
+  decision. The implementer applies it without asking.
+- Action `decide`: a human decides. Every `question` is `decide`, and so is any finding whose fix
+  touches a requirement, a trade-off or an earlier human answer. If you are unsure, it is `decide`.
+- Status: you write `open`, and `fixed` in the next round once you have verified the fix. The
+  human writes the decision on a `decide` finding.
+
+A human answer is a fact of the ticket: the decision list's answers, the objection dispositions
+and the decisions written on findings. Never re-raise what a human decided against, and never
+recommend a fix that reverses one. Only new evidence of a concrete failure reopens it, as a new
+finding that cites the old one.
 
 There are at most two fix rounds (see `review.max_fix_rounds`). After the second, do not ask for a
 third: list the open findings for the human.

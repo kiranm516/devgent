@@ -9,7 +9,7 @@ STATES = (
     "TRIAGED", "PLANNING", "PLAN_APPROVED", "IMPLEMENTING", "IN_REVIEW",
     "APPROVED", "DONE", "BLOCKED", "ABANDONED",
 )
-GATES = ("ticket", "tier-floor", "plan-approval", "slice-paths", "slice-size", "structure")
+GATES = ("ticket", "tier-floor", "plan-approval", "slice-paths", "slice-size", "structure", "review")
 
 
 class GitError(Exception):

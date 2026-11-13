@@ -34,7 +34,7 @@ T1 and T2: fill the seven core sections of `plan.md`.
 4. **Design**: current flow with evidence, proposed flow, and the `### Change map` of files with
    a reason each. Mark uncertain locations "tentative". Use the `minimal-change` skill: plan
    nothing no requirement needs, reuse what the codebase already has, and list every caller, test
-   and fixture the change breaks.
+   and fixture the change breaks, and the documentation it makes stale.
 5. **Test matrix**: every scenario mapped to a level and a named test. Written now, before any
    code. Use the `spring-boot-testing` skill to choose levels.
 6. **Slices**: ordered `### S-01: goal` blocks, each with Covers, Paths, Tests and Exit check.

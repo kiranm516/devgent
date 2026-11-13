@@ -93,7 +93,7 @@ it shows where the ticket stands and the next command to run.
 | 2. Plan | architect, reviewer | The `architect` fills `plan.md`; the `reviewer` records up to five objections. `./agentwf check` lists what is still missing. |
 | 3. Approve the plan | approver | Commit and open a draft PR. The approver answers every decision, gives every objection a disposition, then submits a GitHub approving review. The approver is not the driver. |
 | 4. Implement | implementer, driver | Per slice: `./agentwf slice start S-01`, the `implementer` builds and commits it with a `Slice: S-01` trailer, `./agentwf slice review S-01`, you look at it, `./agentwf slice accept S-01`. |
-| 5. Review | reviewer, approver | `./agentwf state IN_REVIEW`. The `reviewer` writes findings and a one-screen brief (at most two fix rounds). A human approves the diff; merge follows the normal process. |
+| 5. Review | reviewer, approver | `./agentwf state IN_REVIEW`. The `reviewer` writes findings, the commit it reviewed and a one-screen brief (at most two fix rounds). Findings marked `fix` go back to the implementer; a human decides the ones marked `decide`. Mark the PR ready; a human approves the diff; merge follows the normal process. |
 
 | Command | What it does |
 | --- | --- |
@@ -120,6 +120,7 @@ it shows where the ticket stands and the next command to run.
 | Writes stay inside the one active slice | `slice-paths` | `slice-paths`, per commit, from the `Slice:` trailer |
 | Slice size cap | | `slice-size`: net changed production lines per slice, across its commits |
 | Decisions answered, objections dispositioned, plan complete | | `structure` |
+| The diff was reviewed, and the code has not changed since (T1, T2) | | `review`: `review.md` names the reviewed commit and carries a review brief. Checked once the PR is no longer a draft or the state is `IN_REVIEW`; skipped before that. |
 | Force push, push to the default branch, merge, approve, deploy, publish, production hosts, credential files | `dangerous-action` | Branch protection |
 | Role limits per agent | `role`, when the CLI reports the agent | |
 | Audit trail | `.git/agent-workflow/audit.jsonl`: ticket, plan version, role, tool, changed files; never prompts, commands or file content | |

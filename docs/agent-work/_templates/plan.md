@@ -40,7 +40,8 @@ Use a Mermaid sequence diagram only when the flow crosses more than two componen
 
 ### Change map
 
-<!-- Every file to change and why. Mark uncertain locations "tentative". -->
+<!-- Every file to change and why, including the documentation the change makes stale
+(README, OpenAPI description, changelog). Mark uncertain locations "tentative". -->
 
 | File | Change | Reason |
 | --- | --- | --- |

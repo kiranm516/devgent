@@ -37,6 +37,8 @@ def _parser():
         p.add_argument("--base", help="ref to compare with (default: the default branch)")
         p.add_argument("--head", default="HEAD")
         p.add_argument("--breaking-api-change", action="store_true")
+        p.add_argument("--ready", action="store_true",
+                       help="the pull request is not a draft: require the diff review whatever the state")
     p = sub.add_parser("slice")
     p.add_argument("action", choices=["start", "review", "accept"])
     p.add_argument("slice")
@@ -128,7 +130,7 @@ def main(argv=None):
             print("path floor: %s" % floor)
             print("\n".join("  " + r for r in reasons) or "  no path rule matches the files changed so far")
             return 0
-        report = ci.run(root, base, args.head, args.breaking_api_change)
+        report = ci.run(root, base, args.head, args.breaking_api_change, args.ready)
         ci.publish(report)
         return 1 if report.failed else 0
     if args.cmd in ("start", "new"):

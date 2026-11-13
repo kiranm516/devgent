@@ -1,6 +1,7 @@
 """Server-side gates, run on every pull request. Also usable locally."""
 import os
 import re
+import subprocess
 
 from . import config, ticket as tk
 
@@ -115,6 +116,34 @@ def check_slices(root, settings, plan, base, head):
     return size_errors, path_errors
 
 
+def _own_changes(root, ticket, base, rev):
+    """Patch id of what `rev` changes against `base`, outside the ticket folder.
+    Line numbers do not count, so merging the base branch in keeps it stable."""
+    diff = tk.git(root, "diff", "%s...%s" % (base, rev), "--", ".", ":(exclude)" + ticket.dir)
+    proc = subprocess.run(["git", "-C", root, "patch-id", "--stable"], input=diff + "\n",
+                          stdout=subprocess.PIPE, universal_newlines=True)
+    return proc.stdout.split()[:1]
+
+
+def check_diff_review(root, ticket, base, head):
+    """review.md names the commit the reviewer read, and the code has not changed since."""
+    sec = tk.sections(tk.strip_comments(ticket.read("review.md", head) or ""))
+    errors = []
+    reviewed = re.findall(r"(?im)^\s*Reviewed head:\s*`?([0-9a-f]{7,40})\b", sec.get("diff findings", ""))
+    if not reviewed:
+        errors.append("review.md has no diff review: the reviewer writes `Reviewed head: <commit>` "
+                      "under each round in `## Diff findings`")
+    else:
+        sha = tk.git(root, "rev-parse", "--verify", "--quiet", reviewed[-1] + "^{commit}", check=False)
+        if not sha or tk.git(root, "merge-base", sha, head, check=False) != sha:
+            errors.append("reviewed head %s is not a commit on this branch" % reviewed[-1])
+        elif _own_changes(root, ticket, base, sha) != _own_changes(root, ticket, base, head):
+            errors.append("the code changed after the reviewed commit %s; run the reviewer again" % reviewed[-1])
+    if not sec.get("review brief"):
+        errors.append("review.md has no review brief for the human diff review")
+    return errors
+
+
 def base_settings(root, base, head):
     """Settings as they are on the base branch, so a pull request cannot relax
     the rules it is judged by. Falls back to the branch's copy on first install."""
@@ -123,7 +152,7 @@ def base_settings(root, base, head):
     return config.load_settings(root, text) if text else config.load_settings(root)
 
 
-def run(root, base, head="HEAD", breaking_api_change=False):
+def run(root, base, head="HEAD", breaking_api_change=False, ready=False):
     settings = base_settings(root, base, head)
     report = Report()
 
@@ -136,13 +165,15 @@ def run(root, base, head="HEAD", breaking_api_change=False):
         return report
     ticket = tk.Ticket(root, settings, tickets[0])
     plan = ticket.plan(head)
-    overrides = ticket.log(head).overrides
+    log = ticket.log(head)
+    overrides = log.overrides
     errors = ["plan.md is missing"] if plan is None else tk.check_front_matter(plan, ticket.id)
     report.add("ticket", errors, note="%s, declared %s" % (ticket.id, plan.tier if plan else "?"))
     if errors:
         return report
 
-    floor, reasons = settings.tier_floor(_changes(root, base, head), breaking_api_change)
+    changes = _changes(root, base, head)
+    floor, reasons = settings.tier_floor(changes, breaking_api_change)
     errors = []
     if not config.tier_at_least(plan.tier, floor):
         errors = ["the diff needs at least %s but the ticket declares %s; re-triage it" % (floor, plan.tier)] + reasons
@@ -164,6 +195,15 @@ def run(root, base, head="HEAD", breaking_api_change=False):
     if plan.tier != "T0":
         errors += tk.check_review_structure(ticket.read("review.md", head), settings)
     report.add("structure", errors, overrides)
+
+    if plan.tier == "T0":
+        report.skip("review", "T0 is covered by normal pull request review")
+    elif all(settings.ticket_of(path) for path, _ in changes):
+        report.skip("review", "nothing changed outside the ticket folder yet")
+    elif not ready and log.state not in ("IN_REVIEW", "APPROVED", "DONE"):
+        report.skip("review", "checked once the state is IN_REVIEW or the pull request is ready for review")
+    else:
+        report.add("review", check_diff_review(root, ticket, base, head), overrides)
     return report
 
 

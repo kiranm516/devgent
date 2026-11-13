@@ -481,6 +481,7 @@ class RepoTest(unittest.TestCase):
         self.slice_commit("src/test/java/app/OrderServiceTest.java", 400)
         rows, failed = self.result()
         self.assertFalse(failed, rows)
+        self.assertEqual(rows.pop("review")[0], ci.SKIP)  # still PLANNING, and a draft
         self.assertEqual({s for s, _ in rows.values()}, {ci.PASS})
 
     def test_ci_judges_a_pr_by_the_base_branch_rules(self):
@@ -606,7 +607,7 @@ class RepoTest(unittest.TestCase):
         self.assertTrue(failed)
         self.assertIn("needs at least T2", rows["tier-floor"][1][0])
         self.write("docs/agent-work/ABC-1/log.md",
-                   "state: IN_REVIEW\n- 2026-11-13 override tier-floor by Sam Lee: comment-only manifest change\n")
+                   "state: IMPLEMENTING\n- 2026-11-13 override tier-floor by Sam Lee: comment-only manifest change\n")
         self.commit("override")
         rows, failed = self.result()
         self.assertFalse(failed, rows)
@@ -628,6 +629,43 @@ class RepoTest(unittest.TestCase):
         self.assertTrue(failed)
         self.assertEqual(rows["structure"][1], ["Decision D-01 has no approver's answer",
                                                 "Objection O-01 is rejected without a reason"])
+
+    def reviewed(self, sha, brief="## Review brief\nBuild and gates pass. Nothing needs your judgement.\n"):
+        self.write("docs/agent-work/ABC-1/review.md",
+                   review() + "## Diff findings\n### Round 1\n\nReviewed head: `%s`\n\n%s" % (sha, brief))
+        return self.commit("diff review")
+
+    def test_ci_review_is_bound_to_the_reviewed_commit(self):
+        self.ticket()
+        code = self.slice_commit(self.SRC, 10)
+        self.assertEqual(self.result()[0]["review"][0], ci.SKIP)
+        # a pull request that is ready for review, or a ticket in review, needs the diff review
+        self.assertIn("no diff review", self.result(ready=True)[0]["review"][1][0])
+        self.write("docs/agent-work/ABC-1/log.md", "state: IN_REVIEW\n")
+        self.commit("in review")
+        rows, failed = self.result()
+        self.assertTrue(failed)
+        self.assertEqual(len(rows["review"][1]), 2)  # no reviewed head, no brief
+        self.reviewed(code[:10])
+        self.assertEqual(self.result()[0]["review"], (ci.PASS, []))
+        # merging the base branch in does not change what was reviewed
+        self.git("checkout", "-q", "main")
+        self.write("README.md", "unrelated\n")
+        self.commit("unrelated change on main")
+        self.git("checkout", "-q", "ABC-1-orders")
+        self.git("merge", "-q", "--no-edit", "main")
+        self.assertEqual(self.result()[0]["review"][0], ci.PASS)
+        # a code change after the review needs a new round
+        self.slice_commit(self.SRC, 11)
+        self.assertIn("changed after the reviewed commit", self.result()[0]["review"][1][0])
+        self.reviewed(self.git("rev-parse", "HEAD"), brief="")
+        self.assertEqual(self.result()[0]["review"][1], ["review.md has no review brief for the human diff review"])
+        self.reviewed("0123456789")
+        self.assertIn("not a commit on this branch", self.result()[0]["review"][1][0])
+        self.write("docs/agent-work/ABC-1/log.md",
+                   "state: IN_REVIEW\n- 2026-11-13 override review by Ana: reviewed in a pairing session\n")
+        self.commit("override")
+        self.assertEqual(self.result()[0]["review"][0], ci.OVERRIDDEN)
 
     def test_ci_t0(self):
         self.write("docs/agent-work/ABC-1/plan.md",
