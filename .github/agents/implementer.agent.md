@@ -24,6 +24,7 @@ the plan, approve, merge, push to the default branch or deploy.
    assertions come from the plan's scenarios, not from what your implementation happens to do.
 3. Follow `.github/copilot-instructions.md` for conventions and the `spring-boot-testing` skill for
    test levels. No unrelated formatting, dependency upgrades or refactoring.
+   Use the `minimal-change` skill: reuse what the codebase already has before writing new code.
 4. Run the slice's exit check. The build is the authority: report its real output, never a summary
    of what you expect it to say.
 5. Commit the slice with the trailer `Slice: S-nn` (fix rounds too). Its production code changes must stay

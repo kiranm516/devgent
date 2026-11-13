@@ -34,9 +34,11 @@ than two real ones.
 ## Mode 2: diff review (after implementation)
 
 Get the diff with `git diff <base>...HEAD -- . ':!docs/agent-work'` and run the build's checks
-yourself if the output you were given is incomplete. Make these passes, in order:
+yourself if the output you were given is incomplete. Read the callers of the code the diff
+changes, not only the diff. Make these passes, in order:
 
 1. **Plan compliance**: every slice does what the plan says, inside its paths; deviations listed.
+   Use the `minimal-change` skill: code no requirement needs is a deviation for the review brief.
 2. **Correctness**: each scenario's behaviour, edge cases, error handling, transactions.
 3. **Security**: use the `secure-api-review` skill. For T2 this pass is mandatory and complete.
 4. **Test quality**: tests assert the plan's scenarios; they would fail if the behaviour broke.

@@ -4,6 +4,7 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -781,6 +782,16 @@ class InstallTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.target, ".github/CODEOWNERS")))
         found, _ = self.results()
         self.assertEqual(found["CODEOWNERS has 1 active rules"], doctor.OK)
+
+    def test_every_skill_an_agent_names_ships_with_the_kit(self):
+        install.install(self.target, REPO)
+        named = set()
+        for agent in ("scout", "architect", "implementer", "reviewer"):
+            named |= set(re.findall(r"`([a-z-]+)` skill", self.read(".github/agents/%s.agent.md" % agent)))
+        self.assertIn("minimal-change", named)
+        for skill in named:
+            self.assertIn(".github/skills/%s" % skill, install.KIT_OWNED)
+            self.assertIn("name: %s\n" % skill, self.read(".github/skills/%s/SKILL.md" % skill))
 
     def test_install_never_destroys_files_that_are_not_the_kits(self):
         os.makedirs(os.path.join(self.target, ".github/agents"))

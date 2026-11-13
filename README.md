@@ -76,11 +76,11 @@ It exits non-zero when there is a problem, so it can run in a setup script. `--o
 
 | | Files | On update |
 | --- | --- | --- |
-| **Shared** (the kit) | `agentwf`, `agentwf.cmd`, `.github/hooks/agent-workflow.json`, `.github/hooks/agentwf/`, the four agents in `.github/agents/`, the three skills in `.github/skills/`, `.github/workflows/agent-gates.yml`, `docs/agent-work/_templates/`, `AGENTS.md` | Replaced. Do not edit them in a service repository; change them here. |
+| **Shared** (the kit) | `agentwf`, `agentwf.cmd`, `.github/hooks/agent-workflow.json`, `.github/hooks/agentwf/`, the four agents in `.github/agents/`, the four skills in `.github/skills/`, `.github/workflows/agent-gates.yml`, `docs/agent-work/_templates/`, `AGENTS.md` | Replaced. Do not edit them in a service repository; change them here. |
 | **Yours** (per repository) | `.github/agent-workflow.yml` (slice cap, WIP limits, tier path rules), `.github/copilot-instructions.md` (conventions), `.github/CODEOWNERS` | Created on first install, then never touched |
 | **Yours** (per ticket) | `docs/agent-work/<ticket-id>/` | Never touched |
 
-Your own agents, skills and workflows next to the kit's are left alone. The kit's three skill folders and `docs/agent-work/_templates/` belong to it whole: if you add a file inside one, install and update stop and list it instead of deleting it.
+Your own agents, skills and workflows next to the kit's are left alone. The kit's four skill folders and `docs/agent-work/_templates/` belong to it whole: if you add a file inside one, install and update stop and list it instead of deleting it.
 
 ## Using it
 

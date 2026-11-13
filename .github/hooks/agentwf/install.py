@@ -31,6 +31,7 @@ KIT_OWNED = (
     ".github/skills/spring-rest-api-design",
     ".github/skills/spring-boot-testing",
     ".github/skills/secure-api-review",
+    ".github/skills/minimal-change",
     ".github/workflows/agent-gates.yml",
     "docs/agent-work/_templates",
 )
