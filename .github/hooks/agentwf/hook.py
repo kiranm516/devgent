@@ -17,30 +17,45 @@ import time
 
 from . import config, ticket as tk
 
-SHELL_TOOLS = {"bash", "powershell", "shell", "execute"}
-READ_TOOLS = {"view", "read"}
+SHELL_WORDS = ("bash", "powershell", "shell", "execute")
 WRITE_TOOLS = {"edit", "create", "write", "multiedit", "str_replace_editor", "apply_patch", "str_replace"}
 PATH_KEYS = ("path", "file_path", "filePath", "filename", "file", "target_file")
 
 _SEG = r"[^|;&\n]*"
+_PUSH = r"\bgit\b%s\bpush\b%s" % (_SEG, _SEG)
+_GH_WRITE = (r"(\s-X\s*(POST|PUT|PATCH|DELETE)|\s--method[\s=]+(POST|PUT|PATCH|DELETE)"
+             r"|\s-[fF]\b|\s--(raw-)?field\b|\s--input\b)")
 DANGEROUS = [
-    ("force push", r"\bgit\b%s\bpush\b%s(--force|--force-with-lease|\s-[a-zA-Z]*f\b|\s\+\w)" % (_SEG, _SEG)),
-    ("push to the default branch", r"\bgit\b%s\bpush\b%s[\s:](main|master)\b" % (_SEG, _SEG)),
-    ("merging a pull request", r"\bgh\s+pr\s+merge\b|\bgh\s+api\b%s/merge\b" % _SEG),
-    ("approving or dismissing a review", r"\bgh\s+pr\s+review\b|\bgh\s+api\b%s/(reviews|dismissals)\b" % _SEG),
-    ("changing branch protection", r"\bgh\s+api\b%s/(protection|rulesets)\b" % _SEG),
+    ("force push", _PUSH + r"(--force|--force-with-lease|--mirror|\s-[a-zA-Z]*f\b|\s\+\w)"),
+    ("deleting a remote branch", _PUSH + r"(--delete\b|\s-d\b|\s:\w)"),
+    ("merging a pull request", r"\bgh\s+pr\s+merge\b|mergePullRequest|enablePullRequestAutoMerge"),
+    ("merging a pull request", r"\bgh\s+api\b%s/merge\b" % _SEG),
+    ("approving or dismissing a review",
+     r"\bgh\s+pr\s+review\b|addPullRequestReview|submitPullRequestReview|dismissPullRequestReview"),
+    ("writing a review", r"\bgh\s+api\b%s/(reviews|dismissals)\b%s%s" % (_SEG, _SEG, _GH_WRITE)),
+    ("changing branch protection", r"\bgh\s+api\b%s/(protection|rulesets)\b%s%s" % (_SEG, _SEG, _GH_WRITE)),
     ("deploy", r"\bkubectl\s+(apply|delete|create|replace|patch|rollout|scale|set|edit|exec)\b"),
     ("deploy", r"\bhelm\s+(install|upgrade|uninstall|rollback|delete)\b"),
     ("deploy", r"\bterraform\s+(apply|destroy)\b"),
     ("deploy", r"\b(gh\s+workflow\s+run|gh\s+release\s+create|docker\s+push)\b"),
-    ("publish", r"\b(gradlew?|mvnw?)\b%s\b(publish\w*|deploy|release)\b" % _SEG),
+    # a Gradle/Maven task named publish*, deploy or release; not a package, project or property value
+    ("publish", r"\b(gradlew?|mvnw?)\b%s(?<![\w.=-])(publish(?!ToMavenLocal)\w*|deploy|release)(?![\w.=-])" % _SEG),
     ("secret access", r"\bgh\s+(auth\s+token|secret)\b"),
+    ("overriding a gate, accepting a slice or changing the kit",
+     r"\bagentwf(\.cmd)?[\"']?\s+(override|update|install|slice\s+accept)\b"),
+    ("writing a human-only log entry", r"\boverride\s+[a-z-]+\s+by\b|\bslice\s+S-\d+\s+accepted\b"),
 ]
+_SEP = r"[\\/]"
 SECRET_PATH = re.compile(
-    r"(^|[\s/\"'=<>])\.env(\.[\w-]+)*($|[\s\"';|&)])"
-    r"|\.ssh/|\.aws/credentials|\.kube/config|\.netrc\b|\.gnupg/"
+    r"(^|[\s\\/\"'=<>])\.env(\.[\w-]+)*($|[\s\"';|&)])"
+    r"|\.ssh%s|\.aws%scredentials|\.kube%sconfig|\.netrc\b|\.gnupg%s" % (_SEP, _SEP, _SEP, _SEP) +
     r"|\bid_(rsa|dsa|ecdsa|ed25519)\b|\.(pem|p12|pfx)\b"
 )
+_SAFE_ENV = re.compile(r"\.env\.(example|sample|template|dist)\b")
+# quoted commit messages are text, not commands (unless they embed a substitution)
+_MESSAGE = re.compile(r"(\s-[a-zA-Z]*m|\s--message)(\s+|=)('[^']*'|\"[^\"$`]*\")")
+# words an agent may not put into log.md: those entries belong to a human
+HUMAN_ONLY_LOG = re.compile(r"override|accepted", flags=re.I)
 ROLE_RULES = (
     # (role substring, predicate(path, ticket_file) -> allowed, description)
     ("scout", lambda p, f: False, "the scout writes nothing"),
@@ -68,15 +83,18 @@ def _args(payload):
     raw = _field(payload, "toolArgs", "tool_input")
     if isinstance(raw, str):
         try:
-            return json.loads(raw), raw
+            parsed = json.loads(raw)
         except ValueError:
-            return {}, raw
+            parsed = None
+        return (parsed if isinstance(parsed, dict) else {}), raw
     return (raw if isinstance(raw, dict) else {}), json.dumps(raw)
 
 
 def write_paths(args, raw):
     paths = [args[k] for k in PATH_KEYS if isinstance(args.get(k), str)]
-    for value in list(args.values()) + [raw]:
+    # Patch headers name the targets only when the tool gives no path argument;
+    # otherwise a diff quoted inside a document would look like a write.
+    for value in ([] if paths else list(args.values()) + [raw]):
         if isinstance(value, str) and ("*** " in value or "+++ " in value):
             paths += re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", value, flags=re.M)
             paths += re.findall(r"^\*\*\* Move to: (.+?)\s*$", value, flags=re.M)
@@ -100,11 +118,30 @@ def _override(gate):
     return reason.strip() if reason.strip() and (gate in names or "all" in names) else None
 
 
-def check_shell(command, settings):
+def _secret(text):
+    return SECRET_PATH.search(_SAFE_ENV.sub("", text)) is not None
+
+
+def _protected_branches(root):
+    names = {"main", "master"}
+    head = tk.git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", check=False)
+    if "/" in head:
+        names.add(head.split("/", 1)[1])
+    return names
+
+
+def check_shell(command, settings, root=None):
+    command = _MESSAGE.sub(" ", command)
     for label, pattern in DANGEROUS:
         if re.search(pattern, command):
             raise Deny("dangerous-action", "blocked: %s is a human-only action" % label)
-    if SECRET_PATH.search(command):
+    if re.search(_PUSH, command):
+        protected = _protected_branches(root) if root else {"main", "master"}
+        names = "|".join(re.escape(n) for n in sorted(protected))
+        current = tk.git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False) if root else ""
+        if re.search(_PUSH + r"(\s|:)(refs/heads/)?(%s)(?![\w./-])" % names, command) or current in protected:
+            raise Deny("dangerous-action", "blocked: pushing to the default branch is a human-only action")
+    if _secret(command):
         raise Deny("dangerous-action", "blocked: the command touches a credential file")
     for host in settings.production_hosts:
         if host and host in command:
@@ -121,8 +158,10 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
         if gate not in tk.GATES or not waive(gate):
             raise Deny(gate, reason)
 
-    if SECRET_PATH.search("/" + rel):
+    if _secret("/" + rel):
         deny("dangerous-action", "blocked: %s looks like a credential file" % rel)
+    if rel == ".git" or rel.startswith(".git/"):
+        deny("dangerous-action", "blocked: agents do not write inside .git")
     owner = settings.ticket_of(rel)
     ticket_file = rel.rsplit("/", 1)[-1] if owner else None
 
@@ -131,8 +170,12 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
             deny("role", "%s (tried to write %s)" % (text, rel))
 
     if owner:
-        if ticket_file == "log.md" and tk.OVERRIDE_LINE.search(raw or ""):
-            deny("override", "override entries in log.md are written by a human, not an agent")
+        if ticket_file == "log.md" and HUMAN_ONLY_LOG.search(raw or ""):
+            deny("override", (
+                "override and slice-accepted entries are written by a human (`./agentwf override`, "
+                "`./agentwf slice accept`). An agent edit to log.md may not contain the words "
+                "'override' or 'accepted': append your own line without quoting existing ones"
+            ))
         return
 
     ticket = tk.resolve_ticket(root, settings)
@@ -140,7 +183,7 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
     if ticket is None:
         deny("ticket", (
             "no ticket for this branch. Create %s/<ticket-id>/plan.md first "
-            "(`python3 -m agentwf new <ticket-id> --tier <tier>`), on a branch named after the ticket"
+            "(`./agentwf start <ticket-id> --tier <tier>`)"
         ) % settings.artifact_root)
         return
     if plan is None or plan.tier not in config.TIERS:
@@ -153,6 +196,12 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
             "%s requires at least %s but the ticket is %s. Stop and re-triage; "
             "only a human may lower a tier"
         ) % (reasons[0], floor, plan.tier))
+    declared = ticket.highest_declared_tier(ticket.plan_history())
+    if declared and declared > plan.tier and "tier-floor" not in ticket.log().overrides:
+        deny("tier-floor", (
+            "plan.md declared %s earlier and now says %s. Only a human may lower a tier: "
+            "`./agentwf override tier-floor <reason>`"
+        ) % (declared, plan.tier))
     if plan.tier == "T0":
         return
 
@@ -220,12 +269,15 @@ def pre_tool_use(payload):
 
     paths = []
     try:
-        if tool in SHELL_TOOLS:
-            check_shell(str(args.get("command") or raw), settings)
-        elif tool in READ_TOOLS or (tool == "str_replace_editor" and args.get("command") == "view"):
-            if SECRET_PATH.search("/" + str(args.get("path") or raw)):
+        if any(word in tool for word in SHELL_WORDS):
+            check_shell(str(args.get("command") or args.get("input") or raw), settings, root)
+        elif tool not in WRITE_TOOLS or (tool == "str_replace_editor" and args.get("command") == "view"):
+            # every other tool (view, grep, glob, ...): no credential files as targets
+            targets = [args.get(k) for k in PATH_KEYS + ("paths", "glob")]
+            flat = [t for v in targets for t in (v if isinstance(v, list) else [v]) if isinstance(t, str)]
+            if any(_secret("/" + t) for t in flat):
                 raise Deny("dangerous-action", "blocked: reading a credential file")
-        elif tool in WRITE_TOOLS:
+        else:
             paths = write_paths(args, raw)
             if not paths:
                 raise Deny("unknown-write", "cannot tell which file `%s` would write; refusing" % tool)
@@ -274,23 +326,33 @@ def post_tool_use(payload, failed=False):
     record["event"] = "tool"
     record["result"] = "failure" if failed else (result.get("resultType") or result.get("result_type"))
     tool = str(record["tool"] or "").lower()
-    if tool in WRITE_TOOLS:
-        record["paths"] = [p for p in (_relative(root, cwd, p) for p in write_paths(args, raw)) if p]
-    elif tool in SHELL_TOOLS:
+    if any(word in tool for word in SHELL_WORDS):
         status = tk.git(root, "status", "--porcelain", check=False).splitlines()
         record["changed_files"] = [line[3:] for line in status][:200]
+    elif tool in WRITE_TOOLS:
+        record["paths"] = [p for p in (_relative(root, cwd, p) for p in write_paths(args, raw)) if p]
     _audit(root, record)
 
 
 def main(event):
-    payload = json.load(sys.stdin)
     if event == "pre":
-        decision = pre_tool_use(payload)
+        try:
+            payload = json.load(sys.stdin)
+            if not isinstance(payload, dict):
+                raise ValueError("hook input is not a JSON object")
+            decision = pre_tool_use(payload)
+        except Exception as exc:  # fail closed, with a reason the agent can read
+            decision = {
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "[agent-workflow:hook-error] %s: %s. Run `./agentwf doctor`."
+                                            % (type(exc).__name__, exc),
+            }
         if decision:
             print(json.dumps(decision))
-    elif event in ("post", "post-failure"):
+        return 0
+    if event in ("post", "post-failure"):
         try:
-            post_tool_use(payload, failed=event == "post-failure")
+            post_tool_use(json.load(sys.stdin), failed=event == "post-failure")
         except Exception:  # the audit log must never break a session
             pass
     return 0

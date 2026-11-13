@@ -1,43 +1,124 @@
-"""Usage (from the repository root, with PYTHONPATH=.github/hooks):
+"""agentwf: the agent workflow's command line. Run it as ./agentwf from the repository root.
 
-  python3 -m agentwf hook pre|post|post-failure   Copilot CLI hook; JSON on stdin
-  python3 -m agentwf ci --base <ref>              run the pull request gates
-  python3 -m agentwf tier --base <ref>            path floor for the current diff
-  python3 -m agentwf new <ticket-id> --tier T1    scaffold a ticket folder
-  python3 -m agentwf status                       state of the active ticket
+Every day
+  status                         where the ticket stands and what to do next
+  start <ticket-id> --tier T1    create the ticket's branch and folder
+  tier                           tier floor the path rules set for this branch
+  slice start|review|accept S-01 move a slice forward (one at a time)
+  state <STATE> [reason]         set the ticket's state
+  check                          run the pull request gates locally
+  override <gate> <reason>       record a human override of one gate
+
+Setup
+  doctor                         find problems with this repository's setup
+  update                         update the kit in this repository
+  install <target-repo>          install the kit into another repository
+  version                        installed kit version
 """
 import argparse
 import os
+import subprocess
 import sys
 
-from . import ci, config, hook, ticket as tk
+from . import ci, config, doctor, flow, hook, install, ticket as tk
+
+
+def _parser():
+    parser = argparse.ArgumentParser(prog="agentwf", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="cmd", metavar="command")
+    sub.required = True
+    sub.add_parser("status")
+    p = sub.add_parser("start", aliases=["new"])
+    p.add_argument("ticket")
+    p.add_argument("--tier", choices=config.TIERS, required=True)
+    for name in ("check", "ci", "tier"):
+        p = sub.add_parser(name)
+        p.add_argument("--base", help="ref to compare with (default: the default branch)")
+        p.add_argument("--head", default="HEAD")
+        p.add_argument("--breaking-api-change", action="store_true")
+    p = sub.add_parser("slice")
+    p.add_argument("action", choices=["start", "review", "accept"])
+    p.add_argument("slice")
+    p = sub.add_parser("state")
+    p.add_argument("state")
+    p.add_argument("reason", nargs="*")
+    p = sub.add_parser("override")
+    p.add_argument("gate")
+    p.add_argument("reason", nargs="+")
+    p = sub.add_parser("doctor")
+    p.add_argument("--offline", action="store_true", help="skip checks that need the network")
+    p = sub.add_parser("update")
+    p.add_argument("--source", help="kit location: a git URL or a local clone (default: where it was installed from)")
+    p.add_argument("--force", action="store_true", help="overwrite shared files that were edited locally")
+    p = sub.add_parser("install")
+    p.add_argument("target")
+    p.add_argument("--force", action="store_true", help="replace files in the target that are not the kit's")
+    sub.add_parser("version")
+    p = sub.add_parser("hook")
+    p.add_argument("event", choices=["pre", "post", "post-failure"])
+    return parser
+
+
+def _finish_install(summary, kit):
+    print(install.describe(summary, kit))
+    report = doctor.Doctor(summary["target"]).run()
+    print("\nSetup check\n")
+    print(report.text())
+    todo = report.todo()
+    if todo:
+        print("\nWhat is left to do\n")
+        print(todo)
+    print("\nThen: review `git status`, commit, and open a pull request. "
+          "Run `./agentwf doctor` any time to re-check.")
+
+
+def _update(root, args):
+    manifest = install.read_manifest(root)
+    source = args.source or (manifest or {}).get("source")
+    if not source:
+        raise SystemExit("no install manifest here; pass --source <kit URL or path>")
+    edited = [e for e in install.modified_shared_files(root) if e[1] == "modified"]
+    if edited and not args.force:
+        print("These shared files were changed in this repository and would be overwritten:")
+        for rel, what in edited:
+            print("  %s (%s)" % (rel, what))
+        raise SystemExit("Move the change into the kit, or rerun with --force to discard it.")
+    kit, cleanup = install.fetch_kit(source)
+    try:
+        # Run the fetched kit's own installer, so new files and rules apply.
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=os.path.join(kit, ".github", "hooks"))
+        command = [sys.executable, "-m", "agentwf", "install", root] + (["--force"] if args.force else [])
+        code = subprocess.run(command, env=env).returncode
+    finally:
+        cleanup()
+    return 1 if code else 0
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="agentwf", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="cmd")
-    sub.required = True
-    p = sub.add_parser("hook")
-    p.add_argument("event", choices=["pre", "post", "post-failure"])
-    for name in ("ci", "tier"):
-        p = sub.add_parser(name)
-        p.add_argument("--base")
-        p.add_argument("--head", default="HEAD")
-        p.add_argument("--breaking-api-change", action="store_true")
-    p = sub.add_parser("new")
-    p.add_argument("ticket")
-    p.add_argument("--tier", choices=config.TIERS, required=True)
-    sub.add_parser("status")
-    args = parser.parse_args(argv)
-
+    args = _parser().parse_args(argv)
     if args.cmd == "hook":
         return hook.main(args.event)
+    if args.cmd == "install":
+        kit = install.kit_root()
+        _finish_install(install.install(args.target, kit, force=args.force), kit)
+        return 0
 
     root = tk.repo_root(os.getcwd())
     if not root:
         raise SystemExit("not inside a git repository")
-    if args.cmd in ("ci", "tier"):
+    if args.cmd == "version":
+        manifest = install.read_manifest(root)
+        print("devgent %s (from %s)" % (manifest["version"], manifest["source"]) if manifest
+              else "kit source repository (not an installed copy)")
+        return 0
+    if args.cmd == "doctor":
+        report = doctor.Doctor(root, offline=args.offline).run()
+        print(report.text())
+        return 1 if report.count(doctor.FAIL) else 0
+    if args.cmd == "update":
+        return _update(root, args)
+    if args.cmd in ("check", "ci", "tier"):
         base = args.base or tk.default_base(root)
         if not base:
             raise SystemExit("no base ref found; pass --base")
@@ -45,16 +126,31 @@ def main(argv=None):
             settings = config.load_settings(root)
             floor, reasons = settings.tier_floor(ci._changes(root, base, args.head), args.breaking_api_change)
             print("path floor: %s" % floor)
-            print("\n".join("  " + r for r in reasons))
+            print("\n".join("  " + r for r in reasons) or "  no path rule matches the files changed so far")
             return 0
         report = ci.run(root, base, args.head, args.breaking_api_change)
         ci.publish(report)
         return 1 if report.failed else 0
-    if args.cmd == "new":
-        ci.new_ticket(root, args.ticket, args.tier)
-        return 0
-    return ci.status(root)
+    if args.cmd in ("start", "new"):
+        flow.start(root, args.ticket, args.tier)
+    elif args.cmd == "slice":
+        flow.slice_step(root, args.action, args.slice)
+    elif args.cmd == "state":
+        flow.set_state(root, args.state, " ".join(args.reason))
+    elif args.cmd == "override":
+        flow.override(root, args.gate, " ".join(args.reason))
+    else:
+        return flow.status(root)
+    return 0
+
+
+def run():
+    try:
+        return main()
+    except (flow.FlowError, install.InstallError, config.ConfigError, tk.GitError) as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())

@@ -18,7 +18,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      # The tests ship only in the kit's own repository.
       - name: Gate self-tests
+        if: hashFiles('.github/hooks/tests/**') != ''
         env:
           PYTHONPATH: .github/hooks
         run: python3 -m unittest discover -s .github/hooks/tests

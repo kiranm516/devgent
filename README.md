@@ -1,107 +1,155 @@
 # devgent
 
-An implementation of the Agentic Development Workflow Spec v0.2 for Java / Spring Boot REST
-services, driven from GitHub Copilot CLI.
+A plan-first workflow for AI coding agents on Java / Spring Boot REST services, driven from GitHub
+Copilot CLI. Every ticket follows one path: triage, plan, human-answered decisions, small slices,
+independent review, human-approved diff. A Copilot CLI hook, a CI job and branch protection enforce
+it; prompts only guide.
 
-Every ticket follows one path: triage, plan, human-answered decisions, small slices, independent
-review, human-approved diff. The gates are enforced by a Copilot CLI hook, a CI job and branch
-protection, not by prompt instructions.
+This repository is the kit. You install it into each service repository and update it from here.
 
-## What is in here
+- [Install](#install)
+- [Update](#update)
+- [Doctor](#doctor)
+- [What is shared and what is yours](#what-is-shared-and-what-is-yours)
+- [Using it](#using-it)
+- [Gates](#gates)
+- [Known limits](#known-limits)
 
-| Path | Purpose |
+## Install
+
+Each developer machine needs Python 3, Copilot CLI, and the `gh` CLI logged in (`gh auth login`).
+
+```bash
+git clone https://github.com/kiranm516/devgent.git
+cd /path/to/service-repo && git switch -c install-devgent
+/path/to/devgent/agentwf install .
+```
+
+The installer copies the kit, runs the setup check, and prints a numbered list of what is left to
+do in this repository. Work through that list; `./agentwf doctor` re-checks it at any time.
+Typically it is:
+
+1. **Conventions**: fill in the TODOs in `.github/copilot-instructions.md`.
+2. **Path rules**: adjust `tier_rules` and `slice.production_paths` in `.github/agent-workflow.yml` to the repository's layout.
+3. **Owners**: replace the placeholders in `.github/CODEOWNERS` and uncomment the rules.
+4. **Merge**: commit, open a pull request and merge it. The `gates` check fails on this first PR because it carries no ticket folder, so merge it before step 5.
+5. **Branch protection** on the default branch (repository admin): require a pull request with one approving review, dismiss stale approvals on new commits, require the `gates` status check, block force pushes.
+
+The installer never destroys what is already there. An existing `AGENTS.md` or `CODEOWNERS` (in any of GitHub's three locations) is kept, and it tells you what to merge in. If one of the kit's own paths already holds a different file, it stops and lists the files; `--force` lets the kit replace them.
+
+## Update
+
+From the service repository, no kit clone needed:
+
+```bash
+git switch -c update-devgent
+./agentwf update
+```
+
+It fetches the latest kit from where it was installed, replaces the shared files, never overwrites
+yours, and runs the setup check again. `./agentwf doctor` tells you when a newer version exists.
+
+- If a shared file was edited in the service repository, `update` stops and lists it. Move the change into the kit, or pass `--force` to discard it.
+- `./agentwf update --source /path/to/devgent` installs from a local clone instead, for trying unreleased kit changes.
+- An update changes the workflow's own gates, which the path rules class as T2. Once the `gates` check is required, the update PR needs a T2 ticket folder like any other change.
+
+## Doctor
+
+```bash
+./agentwf doctor
+```
+
+It checks, and gives a fix for each problem:
+
+| Area | What it checks |
 | --- | --- |
-| `AGENTS.md` | Short entry point every agent reads |
-| `.github/copilot-instructions.md` | Repository conventions (fill in the TODOs per service) |
-| `.github/agents/` | `scout`, `architect`, `implementer`, `reviewer` |
-| `.github/skills/` | `spring-rest-api-design`, `spring-boot-testing`, `secure-api-review` |
-| `.github/agent-workflow.yml` | Tunable settings: slice cap, WIP limits, tier path rules |
-| `.github/hooks/agent-workflow.json` | Registers the Copilot CLI hooks |
-| `.github/hooks/agentwf/` | The enforcement code, shared by hooks and CI (Python 3, standard library only) |
-| `.github/workflows/agent-gates.yml` | CI job that runs the gates on every pull request |
-| `.github/CODEOWNERS` | Owners for sensitive paths (placeholders, commented out) |
-| `docs/agent-work/_templates/` | Templates for `plan.md`, the T0 task note, `log.md`, `review.md` |
+| Kit | installed version, shared files missing or edited locally, newer version available |
+| Configuration | settings file loads, conventions still have TODOs, CODEOWNERS has real owners |
+| Local hook | runs the registered hook with a test force push and expects it to be blocked |
+| Developer machine | Python version, Copilot CLI, `gh` installed and logged in |
+| GitHub | default branch requires a PR with an approval, dismisses stale approvals, requires `gates`, blocks force pushes |
+| Current ticket | the branch's ticket folder is well formed |
 
-## Install in a service repository
+It exits non-zero when there is a problem, so it can run in a setup script. `--offline` skips the checks that need the network.
 
-1. Copy `AGENTS.md`, `.github/` and `docs/agent-work/_templates/` into the repository.
-2. Fill in the TODOs in `.github/copilot-instructions.md`.
-3. Tune `tier_rules` and `slice.production_paths` in `.github/agent-workflow.yml` to the repository's layout.
-4. Replace the placeholders in `.github/CODEOWNERS`.
-5. Protect the default branch (repository admin):
-   - require a pull request with at least one approving review, and dismiss stale approvals on new commits
-   - require the `gates` status check
-   - block force pushes and direct pushes
-   - Phase 2: require review from code owners
-6. Each developer needs Python 3, the `gh` CLI logged in (`gh auth login`), and Copilot CLI.
+## What is shared and what is yours
 
-Shell shortcut used below: `alias agentwf='PYTHONPATH=.github/hooks python3 -m agentwf'`
-
-## A ticket, step by step
-
-| Step | Who | What happens |
+| | Files | On update |
 | --- | --- | --- |
-| 1. Triage | scout, driver | `git switch -c ABC-123-short-name`. The scout proposes a tier; the path rules set a floor (`agentwf tier`). The driver confirms and runs `agentwf new ABC-123 --tier T1`. |
-| 2. Plan | architect, reviewer | The architect fills `plan.md`. The reviewer records up to five objections in `review.md`. |
-| 3. Approve the plan | approver | The driver commits and opens a draft PR. The approver answers every decision, gives every objection a disposition, and submits a GitHub approving review. The approver is not the driver. |
-| 4. Implement | implementer | One slice at a time: log `slice S-01 started`, write code and tests inside the slice's paths, commit with a `Slice: S-01` trailer, log `slice S-01 awaiting-review`, stop. The driver logs `accepted`. |
-| 5. Review | reviewer, approver | The reviewer writes findings and a one-screen brief in `review.md` (at most two fix rounds). A human approves the diff; merge follows the normal process. |
+| **Shared** (the kit) | `agentwf`, `agentwf.cmd`, `.github/hooks/agent-workflow.json`, `.github/hooks/agentwf/`, the four agents in `.github/agents/`, the three skills in `.github/skills/`, `.github/workflows/agent-gates.yml`, `docs/agent-work/_templates/`, `AGENTS.md` | Replaced. Do not edit them in a service repository; change them here. |
+| **Yours** (per repository) | `.github/agent-workflow.yml` (slice cap, WIP limits, tier path rules), `.github/copilot-instructions.md` (conventions), `.github/CODEOWNERS` | Created on first install, then never touched |
+| **Yours** (per ticket) | `docs/agent-work/<ticket-id>/` | Never touched |
 
-`agentwf status` shows the ticket, state, tier, approval and slice status, so a new session resumes
-from the artifacts alone. T0 tickets carry only a task note in `plan.md`; the driver approves it
-and normal PR review covers the diff.
+Your own agents, skills and workflows next to the kit's are left alone. The kit's three skill folders and `docs/agent-work/_templates/` belong to it whole: if you add a file inside one, install and update stop and list it instead of deleting it.
 
-The branch name must contain the ticket id (or set `AGENT_TICKET`). Any change to `plan.md` after
-approval cancels the approval, including answers: commit the answers first, then approve.
+## Using it
+
+Everything goes through `./agentwf` (`agentwf` on Windows). When in doubt, run `./agentwf status`:
+it shows where the ticket stands and the next command to run.
+
+| Step | Who | Command or action |
+| --- | --- | --- |
+| 1. Triage | scout, driver | Ask the `scout` for a tier. Then `./agentwf start ABC-123 --tier T1` creates the branch and the ticket folder. |
+| 2. Plan | architect, reviewer | The `architect` fills `plan.md`; the `reviewer` records up to five objections. `./agentwf check` lists what is still missing. |
+| 3. Approve the plan | approver | Commit and open a draft PR. The approver answers every decision, gives every objection a disposition, then submits a GitHub approving review. The approver is not the driver. |
+| 4. Implement | implementer, driver | Per slice: `./agentwf slice start S-01`, the `implementer` builds and commits it with a `Slice: S-01` trailer, `./agentwf slice review S-01`, you look at it, `./agentwf slice accept S-01`. |
+| 5. Review | reviewer, approver | `./agentwf state IN_REVIEW`. The `reviewer` writes findings and a one-screen brief (at most two fix rounds). A human approves the diff; merge follows the normal process. |
+
+| Command | What it does |
+| --- | --- |
+| `./agentwf status` | Ticket, state, tier, plan approval, slice status, and the next step |
+| `./agentwf start <id> --tier T0\|T1\|T2` | Creates the branch (named after the ticket) and the ticket folder from the templates |
+| `./agentwf tier` | Tier floor the path rules set for the files changed on this branch |
+| `./agentwf slice start\|review\|accept S-01` | Moves a slice forward. Refuses a second slice while one is in progress or awaiting review. |
+| `./agentwf state <STATE> [reason]` | Sets the state on line 1 of `log.md` and logs the change. `BLOCKED` and `ABANDONED` need a reason. |
+| `./agentwf check` | Runs the CI gates locally |
+| `./agentwf override <gate> <reason>` | Records a human override in `log.md` |
+
+- The branch name must contain the ticket id (or set `AGENT_TICKET`).
+- Any change to `plan.md` cancels its approval, answers included: commit the answers first, then approve.
+- A T0 ticket carries only a short task note in `plan.md`. The driver approves it and normal PR review covers the diff.
+- Agents may run `status`, `check`, `tier`, `slice start` and `slice review`. The hook blocks them from `override`, `slice accept`, `update` and `install`.
 
 ## Gates
 
-| Rule | Hook (guard rail) | CI (boundary) |
+| Rule | Local hook | CI |
 | --- | --- | --- |
-| Source edits need a ticket | `ticket` | `ticket`: exactly one ticket folder per PR |
-| No source edits before plan approval (T1, T2) | `plan-approval`: asks GitHub, through `gh`, for an approving review on a commit whose `plan.md` is identical to the current one | Branch protection |
-| Tier floor from path rules | `tier-floor`, per file written | `tier-floor`, on the final diff |
-| Writes stay inside the active slice; one slice in progress | `slice-paths` | `slice-paths`: per commit, from the `Slice:` trailer |
-| Slice size cap | | `slice-size`: changed production lines per commit |
-| Decisions answered, objections dispositioned, plan ready for approval | | `structure` |
-| Force push, push to the default branch, merge, approve, deploy, publish, production hosts, credential files | `dangerous-action` (no override) | Branch protection |
-| Role limits (scout, architect, reviewer, implementer) | `role`, when the CLI reports the agent | |
-| Audit trail | `.git/agent-workflow/audit.jsonl`: ticket, plan version, role, tool, changed files. Never prompts, commands or file content. | |
-
-Run the CI gates locally with `agentwf ci --base origin/main`.
+| Source edits need a ticket | `ticket` | `ticket`: the PR adds exactly one ticket folder with its `plan.md`; an old ticket's folder cannot be reused |
+| No source edits before plan approval (T1, T2) | `plan-approval`: asks GitHub for an approving review on a commit whose `plan.md` matches the current one | Branch protection |
+| Tier floor from path rules; a tier is never lowered without a human override | `tier-floor`, per file written | `tier-floor`, on the final diff, including deleted files |
+| Writes stay inside the one active slice | `slice-paths` | `slice-paths`, per commit, from the `Slice:` trailer |
+| Slice size cap | | `slice-size`: net changed production lines per slice, across its commits |
+| Decisions answered, objections dispositioned, plan complete | | `structure` |
+| Force push, push to the default branch, merge, approve, deploy, publish, production hosts, credential files | `dangerous-action` | Branch protection |
+| Role limits per agent | `role`, when the CLI reports the agent | |
+| Audit trail | `.git/agent-workflow/audit.jsonl`: ticket, plan version, role, tool, changed files; never prompts, commands or file content | |
 
 ### Overrides
 
-Overrides are allowed and visible. Only a human sets one, and each names its gate and a reason.
+Only a human sets an override. Each names one gate and a reason, and is reviewed in the retrospective.
 
-- Local hook: start the CLI with `AGENT_WORKFLOW_OVERRIDE="plan-approval: approver on leave, agreed in standup" copilot`.
-  The hook lets that gate pass and appends the override to `log.md`.
-- CI: add `- 2026-11-13 override tier-floor by <your name>: <reason>` to `log.md`. The gate reports
-  `overridden` in the job summary instead of failing. This is also how a human lowers a tier below the path floor.
+- **CI**: `./agentwf override tier-floor "comment-only migration"`, then commit `log.md`. The gate reports `overridden` instead of failing. This is also how a human lowers a tier below the path floor.
+- **Local hook**: start the CLI with `AGENT_WORKFLOW_OVERRIDE="plan-approval: approver on leave, agreed in standup" copilot`. The hook lets that gate pass and appends the override to `log.md`.
 
-Agents are blocked from writing override lines through their edit tools. Review every override in the retrospective.
+`dangerous-action` and `role` cannot be overridden. Agents are blocked from writing override or slice-accepted entries through their edit tools, `./agentwf`, and the obvious shell forms. A determined shell command can still append one, so read `log.md` in the PR diff: every override is visible there.
 
-## Limits and things to confirm in the pilot
+## Known limits
 
-- **A local hook is not a boundary.** It can be disabled, and it cannot see what a shell command
-  writes: an agent using `sed -i` or a redirect bypasses the path checks. CI and branch protection catch the result.
-- **Hook payload.** GitHub documents `toolName` and `toolArgs` but not the argument names of the
-  file tools. The hook accepts the common ones (`path`, `file_path`, patch headers) and refuses a
-  write whose target it cannot identify. Confirm on the installed CLI version.
-- **Hook timeouts fail open** in Copilot CLI; a crash fails closed. The approval check allows 12 seconds per `gh` call.
-- **Role and model.** The CLI reports the agent only for subagents, and never the model, so role
-  limits apply only then and the audit log's `model` field is empty unless `COPILOT_MODEL` is set.
-- **Per-agent `model`.** The agent files leave `model` as a comment; whether the CLI honours it for subagents is unconfirmed.
-- **Stage order** rests on the gates. Nothing here makes the CLI run the agents in order.
-- **Not machine-checked:** one plan awaiting approval per driver, the two-fix-round cap, the T2
-  conditional sections other than Alternatives, and breaking-change detection (pass
-  `--breaking-api-change` to `agentwf ci` from your API diff tool).
-- **Not built (Phase 3):** dynamic workflows, usage telemetry export, metrics reporting, calibration exercises.
+- **The local hook is a guard rail.** It can be disabled, and it cannot see what a shell command writes, so `sed -i` or a redirect bypasses its path checks. CI and branch protection catch the result.
+- **Hook payload.** GitHub does not document the argument names of the CLI's file tools. The hook accepts the common ones and refuses a write whose target it cannot identify. Confirm on your CLI version.
+- **Timeouts.** A hook timeout lets the tool call through; a hook crash blocks it.
+- **CI judges a PR by the base branch's settings**, so a PR cannot relax the rules it is checked against; a settings change takes effect after it merges. The gate code and workflow file still come from the PR, which is why they are T2 paths with code owners.
+- **Approval cache.** A plan approval is cached locally for 10 minutes, so a withdrawn approval can take that long to register in the hook.
+- **Role and model.** The CLI reports the agent only for subagents and never the model, so role limits apply only then, and the audit log's `model` is empty unless `COPILOT_MODEL` is set.
+- **Per-agent models.** The agent files leave `model` as a comment; whether the CLI honours it for subagents is unconfirmed.
+- **Not machine-checked:** one plan awaiting approval per driver, the two-fix-round cap, and breaking API changes (pass `--breaking-api-change` to `agentwf check` in the workflow file, from your own detector).
+- **Not built:** dynamic workflows, telemetry export, metrics reporting, calibration exercises.
 
-## Developing the gates
+## Working on the kit
 
-```
+```bash
 PYTHONPATH=.github/hooks python3 -m unittest discover -s .github/hooks/tests
+./agentwf update --source /path/to/devgent     # from a service repository, to try a change before pushing it
 ```
 
-Changes to hooks, agents, the settings file or CODEOWNERS are T2 by the path rules, and go through a reviewed PR like any other change.
+The tests stay in this repository; they are not installed into service repositories.

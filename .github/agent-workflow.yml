@@ -9,19 +9,21 @@ version: 1
 artifact_root: docs/agent-work
 
 slice:
-  # Changed lines (added + deleted) of production code per slice commit.
+  # Net changed lines (added + deleted) of production code per slice.
   # Test code is reviewed but does not count.
   max_production_lines: 100
   production_paths:
     - "**/src/main/**"
 
 wip:
-  slices_awaiting_review_per_ticket: 1   # enforced by the preToolUse hook
-  plans_awaiting_approval_per_driver: 1  # team rule; not machine-checked yet
+  # Recorded for the team; the code enforces one slice in progress or awaiting
+  # review per ticket regardless, and does not check plans per driver.
+  slices_awaiting_review_per_ticket: 1
+  plans_awaiting_approval_per_driver: 1
 
 review:
   max_plan_objections: 5
-  max_fix_rounds: 2
+  max_fix_rounds: 2   # guidance for the reviewer agent; not machine-checked
 
 # Host names (substrings) agents may never call, e.g. "api.prod.example.com".
 production_hosts: []
@@ -57,6 +59,8 @@ tier_rules:
       - ".github/agents/**"
       - ".github/agent-workflow.yml"
       - "**/CODEOWNERS"
+      - "agentwf"
+      - "agentwf.cmd"
 
   - name: new-outbound-client
     min_tier: T2

@@ -1,17 +1,19 @@
 # Agent entry point
 
+<!-- devgent:agents-md (managed by the devgent kit; edits here are overwritten on update) -->
+
 Every ticket follows one path: triage, plan, human-answered decisions, small slices, independent
 review, human-approved diff. Hooks, CI and branch protection enforce it. If a gate refuses you,
 stop and report it; never look for a way around it.
 
 ## Before doing anything
 
-1. Run `PYTHONPATH=.github/hooks python3 -m agentwf status`.
+1. Run `./agentwf status`.
 2. Read the ticket's folder, `docs/agent-work/<ticket-id>/`: `plan.md` (the frozen contract),
    `log.md` (line 1 is the current state), `review.md` (objections and findings).
    These files are the source of truth, not the chat.
 3. No ticket folder? Stop. The driver creates one with
-   `PYTHONPATH=.github/hooks python3 -m agentwf new <ticket-id> --tier T0|T1|T2`
+   `./agentwf start <ticket-id> --tier T0|T1|T2`
    on a branch whose name contains the ticket id.
 
 ## Rules
@@ -28,8 +30,8 @@ stop and report it; never look for a way around it.
 - **Raise, never lower.** Any agent may raise a tier; only a human lowers one.
 - **Plan mismatch = stop.** Log it; the architect revises; the plan is approved again.
 - No credentials, production customer data or sensitive payloads in prompts, logs or artifacts.
-- Never edit your own instructions, skills, hooks or `.github/agent-workflow.yml` unless that is
-  the approved T2 ticket.
+- Never edit your own instructions, skills, hooks or `.github/agent-workflow.yml` unless the
+  approved plan names those files.
 
 Conventions for this codebase are in `.github/copilot-instructions.md`. Limits (slice cap, tier
 path rules) are in `.github/agent-workflow.yml`. The human guide is `README.md`.

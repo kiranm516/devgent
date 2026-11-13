@@ -41,43 +41,54 @@ class Report:
 
 
 def _changes(root, base, head):
-    """[(path, is_new_file)] for the final diff, ignoring deleted files."""
+    """[(path, is_new_file)] for the final diff. Deleting a file counts as touching it."""
     out = tk.git(root, "diff", "--name-status", "--no-renames", "%s...%s" % (base, head))
     changes = []
     for line in out.splitlines():
         status, path = line.split("\t", 1)
-        if status != "D":
-            changes.append((path, status == "A"))
+        changes.append((path, status == "A"))
     return changes
 
 
-def _commit_stats(root, sha):
-    """[(path, changed_lines)] for one commit."""
-    out = tk.git(root, "show", "--numstat", "--no-renames", "--format=", sha)
+def _numstat(text):
     stats = []
-    for line in out.splitlines():
-        added, deleted, path = line.split("\t", 2)
-        lines = 0 if added == "-" else int(added) + int(deleted)
-        stats.append((path, lines))
+    for line in text.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3:
+            added, deleted, path = parts
+            stats.append((path, 0 if added == "-" else int(added) + int(deleted)))
     return stats
 
 
+def _commit_stats(root, sha):
+    """[(path, changed_lines)] for one commit. For a merge commit: only what the
+    merge itself changed beyond the automatic merge (conflict resolutions, extras)."""
+    if len(tk.git(root, "rev-list", "--parents", "-n", "1", sha).split()) > 2:
+        return _numstat(tk.git(root, "show", "--remerge-diff", "--numstat", "--no-renames", "--format=", sha))
+    return _numstat(tk.git(root, "show", "--numstat", "--no-renames", "--format=", sha))
+
+
 def check_slices(root, settings, plan, base, head):
-    """Per slice commit: size cap, a `Slice:` trailer naming a planned slice,
-    and files inside that slice's paths. Returns (size_errors, path_errors)."""
+    """Each commit that changes files carries a `Slice:` trailer naming a planned
+    slice and stays inside that slice's paths; each slice's production change
+    stays within the cap. Returns (size_errors, path_errors)."""
     size_errors, path_errors = [], []
-    for sha in tk.git(root, "rev-list", "--no-merges", "--reverse", "%s..%s" % (base, head)).split():
+    commits = []  # (sha, slice or None, production_lines, is_merge)
+    for sha in tk.git(root, "rev-list", "--reverse", "%s..%s" % (base, head)).split():
+        merge = len(tk.git(root, "rev-list", "--parents", "-n", "1", sha).split()) > 2
         stats = [(p, n) for p, n in _commit_stats(root, sha) if not settings.ticket_of(p)]
         production = sum(n for p, n in stats if settings.is_production(p))
         short = sha[:10]
-        if production > settings.slice_cap:
-            size_errors.append("%s changes %d production lines; the cap is %d" % (short, production, settings.slice_cap))
+        trailer = tk.git(root, "log", "-1", "--format=%(trailers:key=Slice,valueonly)", sha).strip().upper()
+        commits.append((sha, trailer or None, production, merge))
         if not stats:
             continue
-        trailer = tk.git(root, "log", "-1", "--format=%(trailers:key=Slice,valueonly)", sha).strip().upper()
         if not trailer:
             if production:
                 path_errors.append("%s changes production code without a `Slice: S-nn` trailer" % short)
+                if production > settings.slice_cap:
+                    size_errors.append("%s changes %d production lines; the cap is %d"
+                                       % (short, production, settings.slice_cap))
             continue
         allowed = plan.slices.get(trailer)
         if allowed is None:
@@ -86,17 +97,40 @@ def check_slices(root, settings, plan, base, head):
         for path, _ in stats:
             if not config.matches(path, allowed):
                 path_errors.append("%s (%s) touches %s, outside the slice's paths" % (short, trailer, path))
+
+    for slice_id in sorted({c[1] for c in commits if c[1]}):
+        mine = [i for i, c in enumerate(commits) if c[1] == slice_id and c[2]]
+        if not mine:
+            continue
+        span = commits[mine[0]:mine[-1] + 1]
+        if all(c[1] == slice_id or (not c[2] and not c[3]) for c in span):
+            # contiguous: measure the slice's net change, so a fix round is not counted twice
+            diff = tk.git(root, "diff", "--numstat", "--no-renames", span[0][0] + "^", span[-1][0])
+            total = sum(n for p, n in _numstat(diff) if settings.is_production(p))
+        else:
+            total = sum(commits[i][2] for i in mine)
+        if total > settings.slice_cap:
+            size_errors.append("slice %s changes %d production lines; the cap is %d"
+                               % (slice_id, total, settings.slice_cap))
     return size_errors, path_errors
 
 
+def base_settings(root, base, head):
+    """Settings as they are on the base branch, so a pull request cannot relax
+    the rules it is judged by. Falls back to the branch's copy on first install."""
+    fork = tk.git(root, "merge-base", base, head, check=False) or base
+    text = tk.git(root, "show", "%s:%s" % (fork, config.SETTINGS_PATH), check=False)
+    return config.load_settings(root, text) if text else config.load_settings(root)
+
+
 def run(root, base, head="HEAD", breaking_api_change=False):
-    settings = config.load_settings(root)
+    settings = base_settings(root, base, head)
     report = Report()
 
-    tickets = tk.changed_tickets(root, settings, base, head)
+    tickets = tk.changed_tickets(root, settings, base, head, added_only=True)
     if len(tickets) != 1:
         report.add("ticket", [
-            "a pull request must carry exactly one ticket folder under %s/ (found: %s)"
+            "a pull request must add exactly one ticket folder under %s/ with its plan.md (found: %s)"
             % (settings.artifact_root, ", ".join(tickets) or "none")
         ])
         return report
@@ -109,12 +143,14 @@ def run(root, base, head="HEAD", breaking_api_change=False):
         return report
 
     floor, reasons = settings.tier_floor(_changes(root, base, head), breaking_api_change)
-    report.add(
-        "tier-floor",
-        [] if config.tier_at_least(plan.tier, floor) else
-        ["the diff needs at least %s but the ticket declares %s; re-triage it" % (floor, plan.tier)] + reasons,
-        overrides, note="path floor is %s" % floor,
-    )
+    errors = []
+    if not config.tier_at_least(plan.tier, floor):
+        errors = ["the diff needs at least %s but the ticket declares %s; re-triage it" % (floor, plan.tier)] + reasons
+    declared = ticket.highest_declared_tier(ticket.plan_history(base, head))
+    if declared and declared > plan.tier:
+        errors.append("plan.md declared %s earlier on this branch and now says %s; only a human may lower a tier"
+                      % (declared, plan.tier))
+    report.add("tier-floor", errors, overrides, note="path floor is %s" % floor)
 
     if plan.tier == "T0":
         report.skip("slice-size", "T0 has no slices")
@@ -161,22 +197,3 @@ def new_ticket(root, ticket_id, tier):
             fh.write(text)
     print("created %s/%s (%s)" % (settings.artifact_root, ticket_id, ", ".join(sorted(names))))
 
-
-def status(root):
-    """One screen a new session can resume from."""
-    settings = config.load_settings(root)
-    ticket = tk.resolve_ticket(root, settings)
-    if ticket is None:
-        print("no active ticket (branch name should contain the ticket id, or set AGENT_TICKET)")
-        return 1
-    plan, log = ticket.plan(), ticket.log()
-    print("ticket        %s" % ticket.id)
-    print("state         %s" % (log.state or "unknown (first line of log.md must be `state: ...`)"))
-    print("tier          %s   plan version %s" % (plan and plan.tier, plan and plan.version))
-    if plan and plan.tier in ("T1", "T2"):
-        print("plan approval %s" % tk.plan_approval(root, ticket)[1])
-        for slice_id in sorted(plan.slices):
-            print("slice %-7s %s" % (slice_id, log.slice_status.get(slice_id, "not started")))
-    for gate, text in sorted(log.overrides.items()):
-        print("override      %s by %s" % (gate, text))
-    return 0

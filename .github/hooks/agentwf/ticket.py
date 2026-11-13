@@ -18,7 +18,7 @@ class GitError(Exception):
 
 def git(root, *args, check=True):
     proc = subprocess.run(
-        ["git", "-C", root] + list(args),
+        ["git", "-C", root, "-c", "core.quotePath=false"] + list(args),
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
     )
     if check and proc.returncode != 0:
@@ -117,13 +117,16 @@ class Plan:
             m = re.match(r"(s-\d+)\b", title)
             if not m:
                 continue
-            paths, collecting = [], False
+            paths, indent = [], None
             for line in body.splitlines():
-                if re.match(r"\s*[-*]\s+\**paths\**\s*:", line, flags=re.I):
-                    collecting = True
-                elif re.match(r"[-*]\s", line):
-                    collecting = False
-                if collecting:
+                bullet = re.match(r"(\s*)[-*]\s+(.*)", line)
+                if bullet:
+                    lead = len(bullet.group(1))
+                    if re.match(r"\**paths\**\s*:", bullet.group(2), flags=re.I):
+                        indent = lead
+                    elif indent is not None and lead <= indent:
+                        indent = None
+                if indent is not None:
                     paths += re.findall(r"`([^`]+)`", line)
             out[m.group(1).upper()] = paths
         return out
@@ -159,7 +162,6 @@ class Log:
         return [s for s, st in self.slice_status.items() if st == "awaiting-review"]
 
 
-OVERRIDE_LINE = re.compile(r"\d{4}-\d{2}-\d{2} override [a-z-]+ by ")
 
 
 class Ticket:
@@ -172,12 +174,14 @@ class Ticket:
 
     def read(self, name, rev=None):
         if rev:
-            return git(self.root, "show", "%s:%s" % (rev, self.rel(name)), check=False) or None
-        try:
-            with open(os.path.join(self.root, self.rel(name)), encoding="utf-8") as fh:
-                return fh.read()
-        except OSError:
-            return None
+            text = git(self.root, "show", "%s:%s" % (rev, self.rel(name)), check=False) or None
+        else:
+            try:
+                with open(os.path.join(self.root, self.rel(name)), encoding="utf-8", newline="") as fh:
+                    text = fh.read()
+            except OSError:
+                return None
+        return text.replace("\r\n", "\n") if text else text
 
     def plan(self, rev=None):
         text = self.read("plan.md", rev)
@@ -188,8 +192,25 @@ class Ticket:
 
     def append_log(self, entry):
         path = os.path.join(self.root, self.rel("log.md"))
+        existing = self.read("log.md") or ""
         with open(path, "a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")  # never glue an entry onto an unterminated line
             fh.write("- %s %s\n" % (time.strftime("%Y-%m-%d"), entry))
+
+    def highest_declared_tier(self, revs):
+        """Highest tier plan.md declared in any of `revs` (commits)."""
+        best = None
+        for rev in revs:
+            plan = self.plan(rev)
+            if plan and plan.tier in ("T0", "T1", "T2") and (best is None or plan.tier > best):
+                best = plan.tier
+        return best
+
+    def plan_history(self, base=None, head="HEAD"):
+        """Commits that changed plan.md, on this branch only when `base` is given."""
+        span = "%s..%s" % (base, head) if base else head
+        return git(self.root, "log", "--format=%H", span, "--", self.rel("plan.md"), check=False).split()
 
 
 def list_tickets(root, settings):
@@ -210,9 +231,21 @@ def default_base(root):
     return None
 
 
-def changed_tickets(root, settings, base, head="HEAD"):
-    names = git(root, "diff", "--name-only", "%s...%s" % (base, head), check=False).splitlines()
+def changed_tickets(root, settings, base, head="HEAD", added_only=False):
+    """Tickets whose folder the branch touches; with `added_only`, only those
+    whose plan.md the branch adds, so an old ticket's folder cannot be reused."""
+    args = ["diff", "--name-only", "--no-renames", "%s...%s" % (base, head)]
+    if added_only:
+        args.insert(2, "--diff-filter=A")
+    names = git(root, *args, check=False).splitlines()
+    if added_only:
+        names = [n for n in names if n.endswith("/plan.md")]
     return sorted({t for t in (settings.ticket_of(n) for n in names) if t})
+
+
+def _names(ticket_id, branch):
+    """True if `branch` contains `ticket_id` as a whole token (ABC-12 is not in ABC-123)."""
+    return re.search(r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(ticket_id), branch, flags=re.I) is not None
 
 
 def resolve_ticket(root, settings):
@@ -221,13 +254,14 @@ def resolve_ticket(root, settings):
     env = os.environ.get("AGENT_TICKET")
     if env:
         return Ticket(root, settings, env) if env in tickets else None
-    branch = git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False).lower()
-    named = [t for t in tickets if t.lower() in branch]
+    branch = git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    named = [t for t in tickets if _names(t, branch)
+             and Ticket(root, settings, t).log().state not in ("DONE", "ABANDONED")]
     if named:
         return Ticket(root, settings, max(named, key=len))
     base = default_base(root)
-    if base and branch not in ("main", "master"):
-        changed = changed_tickets(root, settings, base)
+    if base and branch not in ("main", "master", "HEAD"):
+        changed = changed_tickets(root, settings, base, added_only=True)
         if len(changed) == 1 and changed[0] in tickets:
             return Ticket(root, settings, changed[0])
     return None
@@ -241,7 +275,7 @@ def resolve_ticket(root, settings):
 def _gh(root, *args):
     try:
         proc = subprocess.run(
-            ["gh"] + list(args), cwd=root, timeout=12,
+            ["gh"] + list(args), cwd=root, timeout=8,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -405,6 +439,9 @@ def check_review_structure(text, settings):
         return ["review.md is missing a `## Plan objections` section"]
     errors = []
     rows = [r for r in table_rows(sec["plan objections"]) if re.search(r"O-\d+", r.get("id", ""))]
+    if not rows and not re.search(r"\bno objections\b", sec["plan objections"], flags=re.I):
+        errors.append("review.md has no plan challenge yet: the reviewer records objections "
+                      "or writes \"No objections.\"")
     if len(rows) > settings.max_objections:
         errors.append("review.md has %d plan objections; the limit is %d" % (len(rows), settings.max_objections))
     for row in rows:

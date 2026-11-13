@@ -5,7 +5,8 @@ state: TRIAGED
 <!--
 Line 1 is the ticket's single current state:
 TRIAGED, PLANNING, PLAN_APPROVED, IMPLEMENTING, IN_REVIEW, APPROVED, DONE, BLOCKED, ABANDONED.
-Everything below is append-only, one line per entry, oldest first:
+Entries are append-only, one line each, oldest first. `./agentwf slice`, `state` and
+`override` write the machine-read ones for you:
 
 - 2026-11-13 state TRIAGED -> PLANNING: driver confirmed T1
 - 2026-11-13 tier proposed T1, path floor T1, confirmed by <driver>
@@ -22,8 +23,6 @@ Hooks and CI read the `slice` and `override` lines. Only a human writes an
 override line. BLOCKED names the question waited on and its owner; ABANDONED says why.
 -->
 
-## Entries
-
 ## Retrospective
 
 <!-- Written by the driver after merge:
@@ -32,3 +31,6 @@ override line. BLOCKED names the question waited on and its owner; ABANDONED say
 - Were any gates overridden, and was that the right call?
 - Which instruction, skill or hook should change?
 -->
+
+## Entries
+

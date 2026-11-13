@@ -147,7 +147,9 @@ _glob_cache = {}
 def glob_regex(pattern):
     rx = _glob_cache.get(pattern)
     if rx is None:
-        out, i = "", 0
+        source, out, i = pattern, "", 0
+        if pattern.endswith("/"):  # a directory means everything under it
+            pattern += "**"
         while i < len(pattern):
             if pattern.startswith("**/", i):
                 out += "(?:.*/)?"
@@ -164,7 +166,7 @@ def glob_regex(pattern):
             else:
                 out += re.escape(pattern[i])
                 i += 1
-        rx = _glob_cache[pattern] = re.compile(out + r"\Z")
+        rx = _glob_cache[source] = re.compile(out + r"\Z")
     return rx
 
 
@@ -182,19 +184,26 @@ class Settings:
         try:
             self.artifact_root = str(data["artifact_root"]).strip("/")
             self.slice_cap = int(data["slice"]["max_production_lines"])
-            self.production_paths = list(data["slice"]["production_paths"])
+            self.production_paths = data["slice"]["production_paths"]
             self.max_objections = int(data["review"]["max_plan_objections"])
             self.max_fix_rounds = int(data["review"]["max_fix_rounds"])
             self.wip = dict(data.get("wip") or {})
-            self.production_hosts = list(data.get("production_hosts") or [])
-            self.tier_rules = list(data["tier_rules"])
+            self.production_hosts = data.get("production_hosts") or []
+            self.tier_rules = data["tier_rules"]
+            if not isinstance(self.tier_rules, list):
+                raise TypeError("tier_rules")
         except (KeyError, TypeError, ValueError) as exc:
             raise ConfigError("invalid %s: %r" % (SETTINGS_PATH, exc))
+        _strings("slice.production_paths", self.production_paths)
+        _strings("production_hosts", self.production_hosts)
         for rule in self.tier_rules:
-            if rule.get("min_tier") not in TIERS or not rule.get("patterns") or not rule.get("name"):
+            if not isinstance(rule, dict) or rule.get("min_tier") not in TIERS or not rule.get("name"):
                 raise ConfigError("invalid tier rule: %r" % (rule,))
+            _strings("patterns of tier rule %s" % rule["name"], rule.get("patterns"))
             if rule.get("when") not in (None, "breaking-api-change"):
                 raise ConfigError("unknown 'when' in tier rule %s" % rule["name"])
+            if rule.get("new_files_only") not in (None, True, False):
+                raise ConfigError("new_files_only in tier rule %s must be true or false" % rule["name"])
 
     def is_production(self, path):
         return matches(path, self.production_paths)
@@ -233,14 +242,25 @@ class Settings:
         return floor, reasons
 
 
-def load_settings(root):
-    path = os.path.join(root, SETTINGS_PATH)
-    try:
-        with open(path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError as exc:
-        raise ConfigError("cannot read %s: %s" % (SETTINGS_PATH, exc))
-    return Settings(parse_yaml(text))
+def _strings(what, value):
+    if not isinstance(value, list) or not value and what.startswith("patterns") \
+            or not all(isinstance(v, str) and v for v in value):
+        raise ConfigError("%s must be a list of strings" % what)
+
+
+def load_settings(root, text=None):
+    """Settings from the working tree, or from `text` (e.g. a base revision's copy)."""
+    if text is None:
+        path = os.path.join(root, SETTINGS_PATH)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            raise ConfigError("cannot read %s: %s" % (SETTINGS_PATH, exc))
+    data = parse_yaml(text)
+    if not isinstance(data, dict):
+        raise ConfigError("%s must be a map of settings" % SETTINGS_PATH)
+    return Settings(data)
 
 
 def tier_at_least(tier, floor):
