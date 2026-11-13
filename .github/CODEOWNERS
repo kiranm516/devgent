@@ -1,0 +1,25 @@
+# Code owners for the paths the tier rules treat as sensitive.
+#
+# Every rule is commented out because the owning teams are not known yet.
+# Replace the placeholders and uncomment. Per the spec, code-owner approval for
+# T2 starts in Phase 2, once these rules cover the sensitive paths and the
+# artifact folder; turn on "Require review from Code Owners" at the same time.
+# Keep the patterns in step with tier_rules in .github/agent-workflow.yml.
+
+# The workflow's own gates
+# /.github/hooks/               @your-org/platform-owners
+# /.github/agents/              @your-org/platform-owners
+# /.github/agent-workflow.yml   @your-org/platform-owners
+# /.github/workflows/           @your-org/platform-owners
+# /.github/CODEOWNERS           @your-org/platform-owners
+
+# Ticket artifacts (plan approvals)
+# /docs/agent-work/             @your-org/service-owners
+
+# Sensitive application paths
+# **/resources/db/migration/    @your-org/data-owners
+# **/resources/db/changelog/    @your-org/data-owners
+# **/security/                  @your-org/security-owners
+# **/Dockerfile                 @your-org/platform-owners
+# **/k8s/                       @your-org/platform-owners
+# **/helm/                      @your-org/platform-owners

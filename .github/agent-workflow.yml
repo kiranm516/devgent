@@ -1,0 +1,100 @@
+# Agent workflow settings. Hooks and CI both read this file, so changing a
+# limit is itself a reviewed (T2) pull request.
+#
+# Parsed by .github/hooks/agentwf/config.py, which accepts plain maps, lists
+# and scalars only (no anchors, multi-line strings or flow maps).
+version: 1
+
+# Each ticket keeps its artifacts in <artifact_root>/<ticket-id>/.
+artifact_root: docs/agent-work
+
+slice:
+  # Changed lines (added + deleted) of production code per slice commit.
+  # Test code is reviewed but does not count.
+  max_production_lines: 100
+  production_paths:
+    - "**/src/main/**"
+
+wip:
+  slices_awaiting_review_per_ticket: 1   # enforced by the preToolUse hook
+  plans_awaiting_approval_per_driver: 1  # team rule; not machine-checked yet
+
+review:
+  max_plan_objections: 5
+  max_fix_rounds: 2
+
+# Host names (substrings) agents may never call, e.g. "api.prod.example.com".
+production_hosts: []
+
+# The scout proposes a tier; these rules set a floor it cannot go below.
+# Generic Gradle / Spring Boot set: tune per repository and note misfires.
+tier_rules:
+  - name: database-migrations
+    min_tier: T2
+    patterns:
+      - "**/resources/db/migration/**"
+      - "**/resources/db/changelog/**"
+
+  - name: security-configuration
+    min_tier: T2
+    patterns:
+      - "**/security/**"
+      - "**/*Security*Config*.java"
+      - "**/*Auth*Filter*.java"
+
+  - name: ci-and-deployment
+    min_tier: T2
+    patterns:
+      - ".github/workflows/**"
+      - "**/Dockerfile"
+      - "**/k8s/**"
+      - "**/helm/**"
+
+  - name: workflow-gates
+    min_tier: T2
+    patterns:
+      - ".github/hooks/**"
+      - ".github/agents/**"
+      - ".github/agent-workflow.yml"
+      - "**/CODEOWNERS"
+
+  - name: new-outbound-client
+    min_tier: T2
+    new_files_only: true
+    patterns:
+      - "**/client/**"
+      - "**/*Client.java"
+
+  # Applies only when CI is told a breaking change was detected
+  # (`agentwf ci --breaking-api-change`, wired to your API diff tool).
+  - name: public-api-breaking-change
+    min_tier: T2
+    when: breaking-api-change
+    patterns:
+      - "**/openapi*.yml"
+      - "**/openapi*.yaml"
+      - "**/*Controller.java"
+      - "**/api/**/*.java"
+
+  - name: public-api
+    min_tier: T1
+    patterns:
+      - "**/openapi*.yml"
+      - "**/openapi*.yaml"
+      - "**/*Controller.java"
+      - "**/api/**/*.java"
+
+  - name: build-and-dependencies
+    min_tier: T1
+    patterns:
+      - "**/build.gradle"
+      - "**/build.gradle.kts"
+      - "settings.gradle*"
+      - "gradle/libs.versions.toml"
+      - "gradle/wrapper/**"
+
+  - name: runtime-configuration
+    min_tier: T1
+    patterns:
+      - "**/application*.yml"
+      - "**/application*.properties"

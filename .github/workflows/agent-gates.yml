@@ -1,0 +1,33 @@
+name: Agent workflow gates
+
+# Server-side boundary for the agent workflow. Make the `gates` job a required
+# status check in branch protection (see README.md).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Gate self-tests
+        env:
+          PYTHONPATH: .github/hooks
+        run: python3 -m unittest discover -s .github/hooks/tests
+
+      # Ticket folder, tier floor, slice size and paths, plan and review structure.
+      # If an API breaking-change detector runs earlier in your pipeline, pass
+      # --breaking-api-change when it reports one.
+      - name: Workflow gates
+        env:
+          PYTHONPATH: .github/hooks
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 -m agentwf ci --base "origin/$BASE_REF"
