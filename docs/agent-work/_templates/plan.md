@@ -36,7 +36,13 @@ For endpoints add method, path, auth, and request/response examples in the servi
 ## Design
 
 <!-- Current flow with evidence (file:line), then the proposed flow.
-Use a Mermaid sequence diagram only when the flow crosses more than two components. -->
+Add a Mermaid diagram when a trigger applies, and only then:
+- the flow crosses more than two components: sequenceDiagram
+- a status or lifecycle field gains or changes a transition: stateDiagram-v2
+- steps must happen in an order across deploys (migration, backfill, flag): flowchart
+- T2: the current and the proposed flow, one diagram each
+`./agentwf view` draws the requirement-to-test trace and the slice-to-file map
+from the tables below: never draw those by hand. -->
 
 ### Change map
 
@@ -69,10 +75,18 @@ production-line cap in .github/agent-workflow.yml. Copy this block per slice:
 ## Decision list
 
 <!-- The three to five decisions only a human can make: business interpretation,
-risk acceptance, commitments to other teams. The approver fills the last column. -->
+risk acceptance, commitments to other teams. One block per decision; CI needs at
+least two options, a recommendation and the approver's answer. The approver writes
+the answer line, or runs `./agentwf answer D-01 A`. Copy this block per decision:
 
-| ID | Decision | Options | Recommendation | Approver's answer |
-| --- | --- | --- | --- | --- |
+### D-01: <the question, answerable with one of the options>
+- Why a human: <what makes this not the agent's call>
+- A: <option and its consequence>
+- B: <option and its consequence>
+- Recommendation: <letter>, because <rationale with evidence, path:line>
+- Reversible: <yes or no, and until when or at what cost>
+- Answer:
+-->
 
 <!-- Conditional sections. Add each one whose trigger applies; delete this comment block otherwise.
 

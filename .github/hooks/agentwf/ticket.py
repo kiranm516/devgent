@@ -89,6 +89,34 @@ def _blank(cell):
     return cell.strip().strip("_*`").strip().lower() in ("", "tbd", "todo", "?", "-", "n/a", "pending")
 
 
+def decisions(text):
+    """`### D-01: question` blocks of a decision list. Each is a dict with id, title,
+    options ([(letter, text)] from `- A: ...` bullets) and the other bullets by
+    lower-cased key: why a human, recommendation, reversible, answer."""
+    out, current, key = [], None, None
+    for line in text.splitlines():
+        head = re.match(r"###\s+(D-\d+)\b[\s:.-]*(.*)", line)
+        bullet = re.match(r"[-*]\s+\**([A-Za-z][A-Za-z' ]{0,30}?)\**\s*:\**\s*(.*)", line)
+        if head:
+            current = {"id": head.group(1), "title": head.group(2).strip(), "options": []}
+            out.append(current)
+            key = None
+        elif current is None:
+            continue
+        elif bullet:
+            key, value = bullet.group(1).strip().lower(), bullet.group(2).strip()
+            if len(key) == 1:
+                current["options"].append([key.upper(), value])
+            else:
+                current[key] = value
+        elif key and line.strip():  # continuation of the bullet above
+            if len(key) == 1:
+                current["options"][-1][1] += " " + line.strip()
+            else:
+                current[key] += " " + line.strip()
+    return out
+
+
 # --------------------------------------------------------------------------
 # Artifacts
 # --------------------------------------------------------------------------
@@ -110,6 +138,7 @@ class Plan:
         self.tier = self.meta.get("tier")
         self.version = self.meta.get("plan_version")
         self.slices = self._slices()
+        self.decisions = decisions(self.sections.get("decision list", ""))
 
     def _slices(self):
         out = {}
@@ -415,10 +444,15 @@ def check_plan_structure(plan):
         if not paths:
             errors.append("Slice %s lists no allowed paths (`- Paths: `...``)" % slice_id)
 
-    for row in table_rows(sec["decision list"]):
-        m = re.search(r"D-\d+", row.get("id", ""))
-        if m and _blank(row.get("approver's answer", row.get("approver answer", ""))):
-            errors.append("Decision %s has no approver's answer" % m.group(0))
+    if not plan.decisions and re.search(r"^\s*\|.*\bD-\d+", sec["decision list"], flags=re.M):
+        errors.append("Decision list: write each decision as a block (`### D-01: question`), not a table row")
+    for d in plan.decisions:
+        if len(d["options"]) < 2:
+            errors.append("Decision %s needs at least two options (`- A: ...`, `- B: ...`)" % d["id"])
+        if _blank(d.get("recommendation", "")):
+            errors.append("Decision %s has no recommendation and rationale" % d["id"])
+        if _blank(d.get("answer", "")):
+            errors.append("Decision %s has no approver's answer" % d["id"])
 
     for row in table_rows(sec.get("open questions", "")):
         blocking = row.get("blocking", "").strip().lower().startswith("y")

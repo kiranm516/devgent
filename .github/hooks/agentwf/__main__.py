@@ -7,6 +7,8 @@ Every day
   slice start|review|accept S-01 move a slice forward (one at a time)
   state <STATE> [reason]         set the ticket's state
   check                          run the pull request gates locally
+  view [--open]                  one generated page: what needs you, decisions, trace, slices
+  answer D-01 A [note]           write the approver's answer to a decision into plan.md
   override <gate> <reason>       record a human override of one gate
 
 Setup
@@ -20,7 +22,7 @@ import os
 import subprocess
 import sys
 
-from . import ci, config, doctor, flow, hook, install, ticket as tk
+from . import ci, config, doctor, flow, hook, install, ticket as tk, view
 
 
 def _parser():
@@ -45,6 +47,11 @@ def _parser():
     p = sub.add_parser("state")
     p.add_argument("state")
     p.add_argument("reason", nargs="*")
+    p = sub.add_parser("view")
+    p.add_argument("--open", action="store_true", help="open the page in the default browser")
+    p = sub.add_parser("answer")
+    p.add_argument("decision")
+    p.add_argument("answer", nargs="+")
     p = sub.add_parser("override")
     p.add_argument("gate")
     p.add_argument("reason", nargs="+")
@@ -139,6 +146,10 @@ def main(argv=None):
         flow.slice_step(root, args.action, args.slice)
     elif args.cmd == "state":
         flow.set_state(root, args.state, " ".join(args.reason))
+    elif args.cmd == "answer":
+        flow.answer(root, args.decision, " ".join(args.answer))
+    elif args.cmd == "view":
+        return view.run(root, args.open)
     elif args.cmd == "override":
         flow.override(root, args.gate, " ".join(args.reason))
     else:

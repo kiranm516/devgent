@@ -41,8 +41,8 @@ DANGEROUS = [
     # a Gradle/Maven task named publish*, deploy or release; not a package, project or property value
     ("publish", r"\b(gradlew?|mvnw?)\b%s(?<![\w.=-])(publish(?!ToMavenLocal)\w*|deploy|release)(?![\w.=-])" % _SEG),
     ("secret access", r"\bgh\s+(auth\s+token|secret)\b"),
-    ("overriding a gate, accepting a slice or changing the kit",
-     r"\bagentwf(\.cmd)?[\"']?\s+(override|update|install|slice\s+accept)\b"),
+    ("overriding a gate, accepting a slice, answering a decision or changing the kit",
+     r"\bagentwf(\.cmd)?[\"']?\s+(override|update|install|answer|slice\s+accept)\b"),
     ("writing a human-only log entry", r"\boverride\s+[a-z-]+\s+by\b|\bslice\s+S-\d+\s+accepted\b"),
 ]
 _SEP = r"[\\/]"

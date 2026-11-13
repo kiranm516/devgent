@@ -42,8 +42,10 @@ T1 and T2: fill the seven core sections of `plan.md`.
    in `.github/agent-workflow.yml`. Never "all classes first, all tests later". No unrelated
    formatting, dependency upgrades or refactoring.
 7. **Decision list**: the three to five decisions only a human can make - business
-   interpretation, risk acceptance, commitments to other teams. Give the options, your
-   recommendation and the consequence of each option. Leave "Approver's answer" empty.
+   interpretation, risk acceptance, commitments to other teams. One `### D-01: question` block
+   each: why it needs a human, lettered options with the consequence of each, your recommendation
+   with its rationale and evidence, and whether the choice is reversible. Always recommend; if
+   you cannot, say what evidence is missing. Leave `- Answer:` empty.
 
 Add a conditional section only when its trigger applies: Data and migration (schema or stored data
 changes), Reliability and operations (new outbound call or asynchronous flow), Security and privacy
@@ -51,7 +53,10 @@ changes), Reliability and operations (new outbound call or asynchronous flow), S
 unresolved, with owner and whether it blocks). Use the `spring-rest-api-design` skill for API work.
 
 Keep it short. The approver reads the decision list; everything else must be checkable by a machine
-or a reviewer. Skip diagrams that restate the prose.
+or a reviewer. Draw a Mermaid diagram when one of the template's triggers applies (more than two
+components, a state transition, an ordering across deploys, T2) and skip diagrams that restate
+the prose. Never hand-draw the requirement-to-test trace or a slice map: `./agentwf view`
+generates those from the tables.
 
 ## Unknowns
 

@@ -115,6 +115,47 @@ def override(root, gate, reason):
           % ticket.rel("log.md"))
 
 
+def answer(root, decision_id, text):
+    """Write the approver's answer on a decision's `- Answer:` line in plan.md."""
+    _, ticket = _active(root)
+    decision_id = decision_id.upper()
+    if not text.strip():
+        raise FlowError("an answer needs text: an option letter, optionally with a note")
+    path = os.path.join(root, ticket.rel("plan.md"))
+    with open(path, encoding="utf-8", newline="") as fh:
+        lines = fh.read().split("\n")
+    start = end = slot = None
+    in_comment = False
+    for i, line in enumerate(lines):
+        if in_comment or "<!--" in line:  # the template's example block is not a decision
+            in_comment = "-->" not in line.split("<!--")[-1]
+            continue
+        if start is None:
+            if re.match(r"###\s+%s\b" % re.escape(decision_id), line):
+                start = i
+        elif line.startswith("#"):
+            end = i
+            break
+        elif re.match(r"[-*]\s+\**answer\**\s*:", line, flags=re.I):
+            slot = i
+    if start is None:
+        plan = ticket.plan()
+        raise FlowError("%s is not a decision in plan.md (defined: %s)" % (
+            decision_id, ", ".join(d["id"] for d in plan.decisions) if plan and plan.decisions else "none"))
+    entry = "- Answer: %s" % " ".join(text.split())
+    if slot is not None:
+        lines[slot] = entry + ("\r" if lines[slot].endswith("\r") else "")
+    else:
+        end = len(lines) if end is None else end
+        while end > start + 1 and not lines[end - 1].strip():
+            end -= 1
+        lines.insert(end, entry)
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write("\n".join(lines))
+    print("%s: %s" % (decision_id, entry[len("- Answer: "):]))
+    print("commit plan.md before approving: any change to it cancels an earlier approval")
+
+
 def next_step(root, settings, ticket, plan, log, approval):
     """One sentence: what the driver should do now."""
     if plan is None:

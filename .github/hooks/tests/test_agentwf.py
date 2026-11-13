@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import unittest
 
-from agentwf import ci, config, doctor, flow, hook, install, ticket as tk
+from agentwf import ci, config, doctor, flow, hook, install, ticket as tk, view
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -61,9 +61,14 @@ Current flow, proposed flow.
   - `src/main/java/app/OrderRepository.java`
 
 ## Decision list
-| ID | Decision | Options | Recommendation | Approver's answer |
-| --- | --- | --- | --- | --- |
-| D-01 | Reject or default? | reject; default | reject | {answer} |
+### D-01: Reject or default?
+- Why a human: changes what clients see
+- A: Reject with 400.
+- B: Default to the guest customer,
+  which hides bad clients.
+- Recommendation: A, because no caller omits the id today
+- Reversible: yes
+- Answer: {answer}
 """
 
 REVIEW = """# Review: ABC-1
@@ -74,7 +79,7 @@ REVIEW = """# Review: ABC-1
 """
 
 
-def plan(tier="T1", answer="Reject"):
+def plan(tier="T1", answer="A"):
     return PLAN.format(tier=tier, answer=answer)
 
 
@@ -165,6 +170,19 @@ class StructureTest(unittest.TestCase):
         for answer in ("", "TBD"):
             errors = tk.check_plan_structure(tk.Plan(plan(answer=answer)))
             self.assertEqual(errors, ["Decision D-01 has no approver's answer"])
+
+    def test_decision_blocks(self):
+        d = tk.Plan(plan()).decisions[0]
+        self.assertEqual((d["id"], d["title"], d["answer"]), ("D-01", "Reject or default?", "A"))
+        self.assertEqual(d["options"], [["A", "Reject with 400."],
+                                        ["B", "Default to the guest customer, which hides bad clients."]])
+        text = plan().replace("- B: Default to the guest customer,\n  which hides bad clients.\n", "")
+        text = text.replace("- Recommendation: A, because no caller omits the id today\n", "")
+        self.assertEqual(tk.check_plan_structure(tk.Plan(text)), [
+            "Decision D-01 needs at least two options (`- A: ...`, `- B: ...`)",
+            "Decision D-01 has no recommendation and rationale"])
+        table = plan().split("### D-01")[0] + "| ID | Decision |\n| --- | --- |\n| D-01 | Reject? |\n"
+        self.assertIn("not a table row", tk.check_plan_structure(tk.Plan(table))[0])
 
     def test_untested_requirement_and_missing_change_map(self):
         text = plan().replace("| SC-02 | Integration | OrderFlowIT.storesOrder |\n", "")
@@ -727,6 +745,48 @@ class RepoTest(unittest.TestCase):
             self.assertIn("dangerous-action", self.pre("bash", {"command": command}), command)
         self.assertIsNone(self.pre("bash", {"command": "./agentwf slice review S-01"}))
         self.assertIsNone(self.pre("bash", {"command": "./agentwf status"}))
+
+    def test_answer_command(self):
+        self.ticket(answer="")
+        ticket = tk.Ticket(self.root, self.settings, "ABC-1")
+        with self.assertRaises(flow.FlowError):
+            flow.answer(self.root, "D-09", "A")
+        flow.answer(self.root, "d-01", "B, for guests only")
+        self.assertEqual(ticket.plan().decisions[0]["answer"], "B, for guests only")
+        self.assertEqual(tk.check_plan_structure(ticket.plan()), [])
+        # no answer line yet, and the template's commented example is not a decision
+        text = "<!-- example:\n### D-01: x\n- Answer:\n-->\n" + plan().replace("- Answer: A\n", "") + "\n## Alternatives\nNone.\n"
+        self.write("docs/agent-work/ABC-1/plan.md", text)
+        flow.answer(self.root, "D-01", "A")
+        raw = ticket.read("plan.md")
+        self.assertTrue(raw.startswith("<!-- example:\n### D-01: x\n- Answer:\n-->"))
+        self.assertIn("- Reversible: yes\n- Answer: A\n\n## Alternatives", raw)
+        self.assertIn("dangerous-action", self.pre("bash", {"command": "./agentwf answer D-01 A"}))
+
+    def test_view_is_generated_from_the_ticket_files(self):
+        self.ticket(answer="")
+        self.write("docs/agent-work/ABC-1/plan.md", plan(answer="").replace(
+            "| SC-02 | Integration | OrderFlowIT.storesOrder |\n", "").replace(
+            "Current flow, proposed flow.", "```mermaid\nsequenceDiagram\n  A->>B: <order>\n```"))
+        self.write("docs/agent-work/ABC-1/review.md", review("") + (
+            "## Diff findings\n### Round 1\n\nReviewed head: `abc1234def`\n\n"
+            "| ID | Severity | File:line | Failure scenario | Recommended fix | Type | Action | Status |\n"
+            "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+            "| F-01 | high | `A.java:3` | <b>null</b> id | check | defect | decide | open |\n"))
+        flow.slice_step(self.root, "start", "S-01")
+        flow.slice_step(self.root, "review", "S-01")
+        ticket = tk.Ticket(self.root, self.settings, "ABC-1")
+        model = view.Model(self.settings, ticket)
+        self.assertEqual([(kind, ident) for kind, ident, _, _ in model.queue()],
+                         [("decision", "D-01"), ("objection", "O-01"), ("slice", "S-01"), ("finding", "F-01")])
+        page = view.render(self.settings, ticket)
+        self.assertIn('data-decision="D-01"', page)
+        self.assertIn("recommended", page)
+        self.assertIn("1 gap", page)                       # SC-02 lost its test
+        self.assertIn("A-&gt;&gt;B: &lt;order&gt;", page)  # ticket text is escaped, never markup
+        self.assertNotIn("<b>null</b>", page)
+        self.assertEqual(view.run(self.root), 0)
+        self.assertEqual(self.git("status", "--porcelain", "--ignored").count(".html"), 0)
 
     def next(self, approved=None):
         ticket = tk.Ticket(self.root, self.settings, "ABC-1")
