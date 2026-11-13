@@ -12,7 +12,7 @@ short: procedures belong in .github/skills, checks belong in scripts. -->
 
 - Full verification: `./gradlew check`
 - One test class: `./gradlew test --tests '*OrderServiceTest'`
-- Workflow gates, as CI runs them: `./agentwf check`
+- Workflow gates, as CI runs them: `./devgent check`
 
 The build pipeline is the authority for compilation, tests, formatting, static analysis and secret
 scanning. Run it and report its real output.

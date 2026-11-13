@@ -1,4 +1,4 @@
-"""agentwf: the agent workflow's command line. Run it as ./agentwf from the repository root.
+"""devgent: the agent workflow's command line. Run it as ./devgent from the repository root.
 
 Every day
   status                         where the ticket stands and what to do next
@@ -26,7 +26,7 @@ from . import ci, config, doctor, flow, hook, install, ticket as tk, view
 
 
 def _parser():
-    parser = argparse.ArgumentParser(prog="agentwf", description=__doc__,
+    parser = argparse.ArgumentParser(prog="devgent", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", metavar="command")
     sub.required = True
@@ -79,7 +79,7 @@ def _finish_install(summary, kit):
         print("\nWhat is left to do\n")
         print(todo)
     print("\nThen: review `git status`, commit, and open a pull request. "
-          "Run `./agentwf doctor` any time to re-check.")
+          "Run `./devgent doctor` any time to re-check.")
 
 
 def _update(root, args):
@@ -97,7 +97,7 @@ def _update(root, args):
     try:
         # Run the fetched kit's own installer, so new files and rules apply.
         env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=os.path.join(kit, ".github", "hooks"))
-        command = [sys.executable, "-m", "agentwf", "install", root] + (["--force"] if args.force else [])
+        command = [sys.executable, "-m", "devgent", "install", root] + (["--force"] if args.force else [])
         code = subprocess.run(command, env=env).returncode
     finally:
         cleanup()

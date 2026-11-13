@@ -34,4 +34,4 @@ jobs:
           PYTHONPATH: .github/hooks
           BASE_REF: ${{ github.base_ref }}
           DRAFT: ${{ github.event.pull_request.draft }}
-        run: python3 -m agentwf ci --base "origin/$BASE_REF" $([ "$DRAFT" = "false" ] && echo --ready)
+        run: python3 -m devgent ci --base "origin/$BASE_REF" $([ "$DRAFT" = "false" ] && echo --ready)

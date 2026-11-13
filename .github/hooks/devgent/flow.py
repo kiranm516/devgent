@@ -16,7 +16,7 @@ def _active(root):
     ticket = tk.resolve_ticket(root, settings)
     if ticket is None:
         raise FlowError("no active ticket: the branch name must contain the ticket id "
-                        "(start one with `./agentwf start <ticket-id> --tier T1`)")
+                        "(start one with `./devgent start <ticket-id> --tier T1`)")
     if ticket.read("log.md") is None:
         raise FlowError("%s is missing" % ticket.rel("log.md"))
     return settings, ticket
@@ -50,7 +50,7 @@ def start(root, ticket_id, tier):
         tk.git(root, "switch", "-c", ticket_id)
         print("switched to new branch %s" % ticket_id)
     ci.new_ticket(root, ticket_id, tier)
-    print("next: have the scout and architect fill %s/%s/plan.md, then run `./agentwf status`"
+    print("next: have the scout and architect fill %s/%s/plan.md, then run `./devgent status`"
           % (config.load_settings(root).artifact_root, ticket_id))
 
 
@@ -159,12 +159,12 @@ def answer(root, decision_id, text):
 def next_step(root, settings, ticket, plan, log, approval):
     """One sentence: what the driver should do now."""
     if plan is None:
-        return "plan.md is missing; restore it or start again with `./agentwf start`"
+        return "plan.md is missing; restore it or start again with `./devgent start`"
     if log.state in ("BLOCKED", "ABANDONED", "DONE", "APPROVED"):
-        return {"BLOCKED": "blocked: resolve the question in log.md, then `./agentwf state <STATE>`",
+        return {"BLOCKED": "blocked: resolve the question in log.md, then `./devgent state <STATE>`",
                 "ABANDONED": "nothing: the ticket was abandoned",
                 "APPROVED": "merge through the normal process, then write the retrospective in log.md "
-                            "and run `./agentwf state DONE`",
+                            "and run `./devgent state DONE`",
                 "DONE": "nothing: the ticket is done"}[log.state]
     errors = tk.check_plan_structure(plan)
     if plan.tier == "T0":
@@ -174,24 +174,24 @@ def next_step(root, settings, ticket, plan, log, approval):
     errors += tk.check_review_structure(ticket.read("review.md"), settings)
     if not approval[0]:
         if errors:
-            return ("the plan is not ready for approval (%d issues; `./agentwf check` lists them). "
+            return ("the plan is not ready for approval (%d issues; `./devgent check` lists them). "
                     "First: %s" % (len(errors), errors[0]))
         return ("commit the plan, open a draft PR (`gh pr create --draft`) and ask the approver "
                 "for an approving review. Detail: %s" % approval[1])
     active, waiting = log.active_slices(), log.awaiting_review()
     if active:
-        return ("the implementer is on %s. When its commit is in: `./agentwf slice review %s`"
+        return ("the implementer is on %s. When its commit is in: `./devgent slice review %s`"
                 % (active[0], active[0]))
     if waiting:
-        return ("review %s, then `./agentwf slice accept %s` (or `./agentwf slice start %s` for a fix round)"
+        return ("review %s, then `./devgent slice accept %s` (or `./devgent slice start %s` for a fix round)"
                 % (waiting[0], waiting[0], waiting[0]))
     todo = [s for s in sorted(plan.slices) if log.slice_status.get(s) != "accepted"]
     if todo:
-        return "`./agentwf slice start %s`, then hand it to the implementer" % todo[0]
+        return "`./devgent slice start %s`, then hand it to the implementer" % todo[0]
     if log.state != "IN_REVIEW":
-        return "all slices are accepted: `./agentwf state IN_REVIEW`, then run the reviewer on the diff"
-    return ("run `./agentwf check`, mark the PR ready and ask the approver to review the diff; "
-            "after approval `./agentwf state APPROVED`")
+        return "all slices are accepted: `./devgent state IN_REVIEW`, then run the reviewer on the diff"
+    return ("run `./devgent check`, mark the PR ready and ask the approver to review the diff; "
+            "after approval `./devgent state APPROVED`")
 
 
 def status(root):
@@ -200,8 +200,8 @@ def status(root):
     ticket = tk.resolve_ticket(root, settings)
     if ticket is None:
         print("no active ticket on this branch")
-        print("\nnext: `./agentwf start <ticket-id> --tier T0|T1|T2` "
-              "(`./agentwf tier` shows the floor for work already on the branch)")
+        print("\nnext: `./devgent start <ticket-id> --tier T0|T1|T2` "
+              "(`./devgent tier` shows the floor for work already on the branch)")
         return 1
     plan, log = ticket.plan(), ticket.log()
     print("ticket        %s" % ticket.id)

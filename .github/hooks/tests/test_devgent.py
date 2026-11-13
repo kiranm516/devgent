@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import unittest
 
-from agentwf import ci, config, doctor, flow, hook, install, ticket as tk, view
+from devgent import ci, config, doctor, flow, hook, install, ticket as tk, view
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -149,7 +149,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(floor(("src/main/java/app/client/Pay.java", False)), "T0")
         self.assertEqual(floor(("src/main/java/app/client/Pay.java", True)), "T2")
         self.assertEqual(floor(("src/main/resources/db/migration/V2__a.sql", True)), "T2")
-        self.assertEqual(floor((".github/hooks/agentwf/hook.py", False)), "T2")
+        self.assertEqual(floor((".github/hooks/devgent/hook.py", False)), "T2")
         self.assertEqual(floor(("CODEOWNERS", False)), "T2")
         # a ticket's own artifacts never raise the tier
         self.assertEqual(floor(("docs/agent-work/ABC-1/plan.md", True)), "T0")
@@ -282,7 +282,7 @@ class ShellTest(unittest.TestCase):
             "./gradlew test --tests 'com.acme.orders.publisher.*'", "./gradlew :publisher-service:test",
             "./gradlew build -Pprofile=release", "./gradlew publishToMavenLocal", "mvn -pl deploy-tools test",
             "git push origin main-fix", "git commit -m 'fix: handle push to main gracefully'",
-            "git commit -m 'docs: agentwf update notes'", "cat .env.example", "gh api repos/o/r/pulls/1/reviews",
+            "git commit -m 'docs: devgent update notes'", "cat .env.example", "gh api repos/o/r/pulls/1/reviews",
         ):
             self.assertTrue(self.check(command), command)
 
@@ -302,9 +302,9 @@ class RepoTest(unittest.TestCase):
         self.commit("baseline")
         self.git("checkout", "-q", "-b", "ABC-1-orders")
         self.settings = config.load_settings(self.root)
-        for key in ("AGENT_TICKET", "AGENT_WORKFLOW_OVERRIDE", "AGENT_ROLE"):
+        for key in ("DEVGENT_TICKET", "DEVGENT_OVERRIDE", "DEVGENT_ROLE"):
             os.environ.pop(key, None)
-        self.addCleanup(os.environ.pop, "AGENT_WORKFLOW_OVERRIDE", None)
+        self.addCleanup(os.environ.pop, "DEVGENT_OVERRIDE", None)
 
     def git(self, *args):
         return subprocess.run(["git", "-C", self.root] + list(args), check=True,
@@ -347,7 +347,7 @@ class RepoTest(unittest.TestCase):
 
     def test_source_edit_needs_a_ticket(self):
         self.git("checkout", "-q", "-b", "no-ticket")
-        self.assertIn("[agent-workflow:ticket]", self.pre("create", {"path": self.SRC}))
+        self.assertIn("[devgent:ticket]", self.pre("create", {"path": self.SRC}))
         # but starting a ticket's artifact folder is always allowed
         self.assertIsNone(self.pre("create", {"path": "docs/agent-work/XYZ-9/plan.md"}))
 
@@ -411,7 +411,7 @@ class RepoTest(unittest.TestCase):
 
     def test_override_is_allowed_and_logged(self):
         self.ticket(log="state: IMPLEMENTING\n- 2026-11-13 slice S-01 started\n")
-        os.environ["AGENT_WORKFLOW_OVERRIDE"] = "plan-approval: approver on leave, agreed in standup"
+        os.environ["DEVGENT_OVERRIDE"] = "plan-approval: approver on leave, agreed in standup"
         self.assertIsNone(self.pre("edit", {"path": self.SRC}))
         self.assertIsNone(self.pre("edit", {"path": self.SRC}))
         log = tk.Ticket(self.root, self.settings, "ABC-1").read("log.md")
@@ -419,7 +419,7 @@ class RepoTest(unittest.TestCase):
         # the override names one gate only; the others still apply
         self.assertIn("slice-paths", self.pre("edit", {"path": "src/main/java/app/Other.java"}))
         self.assertIn("tier-floor", self.pre("create", {"path": "k8s/deploy.yml"}))
-        os.environ["AGENT_WORKFLOW_OVERRIDE"] = "all: x"
+        os.environ["DEVGENT_OVERRIDE"] = "all: x"
         self.assertIn("dangerous-action", self.pre("bash", {"command": "gh pr merge 3"}))
 
     def test_agents_cannot_write_override_lines_or_outside_the_repo(self):
@@ -459,7 +459,7 @@ class RepoTest(unittest.TestCase):
         hook.post_tool_use({"toolName": "edit", "cwd": self.root, "sessionId": "s1",
                             "toolArgs": {"path": self.SRC, "new_str": "SECRET"},
                             "toolResult": {"resultType": "success"}})
-        with open(os.path.join(self.root, ".git/agent-workflow/audit.jsonl")) as fh:
+        with open(os.path.join(self.root, ".git/devgent/audit.jsonl")) as fh:
             text = fh.read()
         records = [json.loads(line) for line in text.splitlines()]
         self.assertNotIn("SECRET", text)
@@ -471,7 +471,7 @@ class RepoTest(unittest.TestCase):
         self.ticket()
         env = dict(os.environ, PYTHONPATH=os.path.join(self.root, ".github/hooks"))
         run = lambda payload: subprocess.run(
-            ["python3", "-m", "agentwf", "hook", "pre"], input=json.dumps(payload), cwd=self.root, env=env,
+            ["python3", "-m", "devgent", "hook", "pre"], input=json.dumps(payload), cwd=self.root, env=env,
             stdout=subprocess.PIPE, universal_newlines=True)
         denied = run({"toolName": "bash", "toolArgs": json.dumps({"command": "git push --force"}), "cwd": self.root})
         self.assertEqual(denied.returncode, 0)
@@ -483,7 +483,7 @@ class RepoTest(unittest.TestCase):
             self.assertEqual(out.returncode, 0)
             self.assertEqual(json.loads(out.stdout)["permissionDecision"], "deny", bad)
         # the registered command works from a subdirectory too
-        with open(os.path.join(self.root, ".github/hooks/agent-workflow.json")) as fh:
+        with open(os.path.join(self.root, ".github/hooks/devgent.json")) as fh:
             command = json.load(fh)["hooks"]["preToolUse"][0]["bash"]
         os.makedirs(os.path.join(self.root, "src"), exist_ok=True)
         out = subprocess.run(["bash", "-c", command], cwd=os.path.join(self.root, "src"), stdout=subprocess.PIPE,
@@ -512,7 +512,7 @@ class RepoTest(unittest.TestCase):
 
     def test_ci_judges_a_pr_by_the_base_branch_rules(self):
         self.ticket(tier="T0")
-        self.write(".github/agent-workflow.yml", self.read(".github/agent-workflow.yml").split("tier_rules:")[0]
+        self.write(".github/devgent.yml", self.read(".github/devgent.yml").split("tier_rules:")[0]
                    + "tier_rules:\n  - name: none\n    min_tier: T1\n    patterns: [\"nothing\"]\n")
         self.write("src/main/resources/db/migration/V2__x.sql", "alter table x;\n")
         self.commit("weaken the rules and add a migration")
@@ -569,7 +569,7 @@ class RepoTest(unittest.TestCase):
         self.commit("old merged ticket")
         self.git("checkout", "-q", "-b", "feature/ABC-123-new")
         self.assertIsNone(tk.resolve_ticket(self.root, self.settings))
-        self.assertIn("[agent-workflow:ticket]", self.pre("create", {"path": self.SRC}))
+        self.assertIn("[devgent:ticket]", self.pre("create", {"path": self.SRC}))
         self.write("docs/agent-work/ABC-12/log.md", "state: DONE\n- 2026-11-13 note\n")
         self.slice_commit(self.SRC, 5, trailer=None)
         rows, failed = self.result()
@@ -748,11 +748,11 @@ class RepoTest(unittest.TestCase):
         flow.override(self.root, "slice-size", "generated mapper")
         ticket = tk.Ticket(self.root, self.settings, "ABC-1")
         self.assertEqual(ticket.log().overrides, {"slice-size": "Test Driver: generated mapper"})
-        for command in ("./agentwf override slice-size because", "./agentwf slice accept S-01",
-                        "./agentwf update --force", "python3 -m agentwf override x y"):
+        for command in ("./devgent override slice-size because", "./devgent slice accept S-01",
+                        "./devgent update --force", "python3 -m devgent override x y"):
             self.assertIn("dangerous-action", self.pre("bash", {"command": command}), command)
-        self.assertIsNone(self.pre("bash", {"command": "./agentwf slice review S-01"}))
-        self.assertIsNone(self.pre("bash", {"command": "./agentwf status"}))
+        self.assertIsNone(self.pre("bash", {"command": "./devgent slice review S-01"}))
+        self.assertIsNone(self.pre("bash", {"command": "./devgent status"}))
 
     def test_answer_command(self):
         self.ticket(answer="")
@@ -769,7 +769,7 @@ class RepoTest(unittest.TestCase):
         raw = ticket.read("plan.md")
         self.assertTrue(raw.startswith("<!-- example:\n### D-01: x\n- Answer:\n-->"))
         self.assertIn("- Reversible: yes\n- Answer: A\n\n## Alternatives", raw)
-        self.assertIn("dangerous-action", self.pre("bash", {"command": "./agentwf answer D-01 A"}))
+        self.assertIn("dangerous-action", self.pre("bash", {"command": "./devgent answer D-01 A"}))
 
     def test_view_is_generated_from_the_ticket_files(self):
         self.ticket(answer="")
@@ -850,16 +850,16 @@ class InstallTest(unittest.TestCase):
         first = install.install(self.target, REPO)
         self.assertIsNone(first["previous"])
         self.assertEqual(sorted(first["created"]), sorted(install.REPO_OWNED))
-        self.assertTrue(os.access(os.path.join(self.target, "agentwf"), os.X_OK))
+        self.assertTrue(os.access(os.path.join(self.target, "devgent"), os.X_OK))
         self.assertFalse(os.path.exists(os.path.join(self.target, ".github/hooks/tests")))
         self.assertFalse(os.path.exists(os.path.join(self.target, "README.md")))
         manifest = install.read_manifest(self.target)
-        self.assertIn(".github/hooks/agentwf/hook.py", manifest["files"])
+        self.assertIn(".github/hooks/devgent/hook.py", manifest["files"])
         self.assertIn("AGENTS.md", manifest["files"])
         self.assertEqual(install.modified_shared_files(self.target), [])
 
-        settings = self.read(".github/agent-workflow.yml").replace("max_production_lines: 100", "max_production_lines: 60")
-        self.write(".github/agent-workflow.yml", settings)
+        settings = self.read(".github/devgent.yml").replace("max_production_lines: 100", "max_production_lines: 60")
+        self.write(".github/devgent.yml", settings)
         self.write(".github/agents/reviewer.agent.md", "edited locally")
         os.remove(os.path.join(self.target, ".github/agents/scout.agent.md"))
         self.write(".github/agents/my-own.agent.md", "mine")
@@ -868,9 +868,9 @@ class InstallTest(unittest.TestCase):
 
         second = install.install(self.target, REPO)
         self.assertEqual(second["previous"], first["version"])
-        self.assertEqual(second["kept"], [".github/agent-workflow.yml"])
+        self.assertEqual(second["kept"], [".github/devgent.yml"])
         self.assertEqual(second["updated"], [".github/agents/reviewer.agent.md"])
-        self.assertIn("max_production_lines: 60", self.read(".github/agent-workflow.yml"))
+        self.assertIn("max_production_lines: 60", self.read(".github/devgent.yml"))
         self.assertEqual(self.read(".github/agents/my-own.agent.md"), "mine")
         self.assertEqual(install.modified_shared_files(self.target), [])
 
@@ -909,7 +909,7 @@ class InstallTest(unittest.TestCase):
         self.assertIn("reviewer.agent.md (already exists", str(caught.exception))
         self.assertIn("notes.md (not part of the kit", str(caught.exception))
         self.assertEqual(self.read(".github/agents/reviewer.agent.md"), "our own reviewer")
-        self.assertFalse(os.path.exists(os.path.join(self.target, "agentwf")))  # nothing was touched
+        self.assertFalse(os.path.exists(os.path.join(self.target, "devgent")))  # nothing was touched
         install.install(self.target, REPO, force=True)
         # later: a file the repository adds inside a shared directory stops an update too
         self.write("docs/agent-work/_templates/adr.md", "ours")
@@ -951,20 +951,20 @@ class InstallTest(unittest.TestCase):
 
     def test_doctor_finds_broken_setups(self):
         install.install(self.target, REPO)
-        self.write(".github/agent-workflow.yml", "version: 1\n")
-        self.write(".github/hooks/agent-workflow.json", "{}")
+        self.write(".github/devgent.yml", "version: 1\n")
+        self.write(".github/hooks/devgent.json", "{}")
         self.write(".github/CODEOWNERS", "/docs/ @your-org/service-owners\n")
         found, report = self.results()
-        self.assertEqual(found[".github/hooks/agent-workflow.json is missing or invalid"], doctor.FAIL)
+        self.assertEqual(found[".github/hooks/devgent.json is missing or invalid"], doctor.FAIL)
         self.assertEqual(found["CODEOWNERS still names the placeholder @your-org teams"], doctor.FAIL)
-        self.assertEqual(found["shared file modified: .github/hooks/agent-workflow.json"], doctor.WARN)
-        self.assertTrue(any(m.startswith("invalid .github/agent-workflow.yml") and lvl == doctor.FAIL
+        self.assertEqual(found["shared file modified: .github/hooks/devgent.json"], doctor.WARN)
+        self.assertTrue(any(m.startswith("invalid .github/devgent.yml") and lvl == doctor.FAIL
                             for m, lvl in found.items()))
         self.assertGreaterEqual(report.count(doctor.FAIL), 3)
 
     def test_cli_install_update_and_guards(self):
         env = dict(os.environ)
-        run = lambda cwd, *args: subprocess.run([os.path.join(cwd, "agentwf")] + list(args), cwd=cwd, env=env,
+        run = lambda cwd, *args: subprocess.run([os.path.join(cwd, "devgent")] + list(args), cwd=cwd, env=env,
                                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         out = run(REPO, "install", self.target)
         self.assertEqual(out.returncode, 0, out.stdout)

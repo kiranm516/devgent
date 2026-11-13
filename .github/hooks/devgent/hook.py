@@ -42,7 +42,7 @@ DANGEROUS = [
     ("publish", r"\b(gradlew?|mvnw?)\b%s(?<![\w.=-])(publish(?!ToMavenLocal)\w*|deploy|release)(?![\w.=-])" % _SEG),
     ("secret access", r"\bgh\s+(auth\s+token|secret)\b"),
     ("overriding a gate, accepting a slice, answering a decision or changing the kit",
-     r"\bagentwf(\.cmd)?[\"']?\s+(override|update|install|answer|slice\s+accept)\b"),
+     r"\bdevgent(\.cmd)?[\"']?\s+(override|update|install|answer|slice\s+accept)\b"),
     ("writing a human-only log entry", r"\boverride\s+[a-z-]+\s+by\b|\bslice\s+S-\d+\s+accepted\b"),
 ]
 _SEP = r"[\\/]"
@@ -109,8 +109,8 @@ def _relative(root, cwd, path):
 
 
 def _override(gate):
-    """Reason if the human driver set AGENT_WORKFLOW_OVERRIDE="<gate>[,<gate>]: reason"."""
-    value = os.environ.get("AGENT_WORKFLOW_OVERRIDE", "")
+    """Reason if the human driver set DEVGENT_OVERRIDE="<gate>[,<gate>]: reason"."""
+    value = os.environ.get("DEVGENT_OVERRIDE", "")
     if ":" not in value:
         return None
     gates, reason = value.split(":", 1)
@@ -172,8 +172,8 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
     if owner:
         if ticket_file == "log.md" and HUMAN_ONLY_LOG.search(raw or ""):
             deny("override", (
-                "override and slice-accepted entries are written by a human (`./agentwf override`, "
-                "`./agentwf slice accept`). An agent edit to log.md may not contain the words "
+                "override and slice-accepted entries are written by a human (`./devgent override`, "
+                "`./devgent slice accept`). An agent edit to log.md may not contain the words "
                 "'override' or 'accepted': append your own line without quoting existing ones"
             ))
         return
@@ -183,7 +183,7 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
     if ticket is None:
         deny("ticket", (
             "no ticket for this branch. Create %s/<ticket-id>/plan.md first "
-            "(`./agentwf start <ticket-id> --tier <tier>`)"
+            "(`./devgent start <ticket-id> --tier <tier>`)"
         ) % settings.artifact_root)
         return
     if plan is None or plan.tier not in config.TIERS:
@@ -200,7 +200,7 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
     if declared and declared > plan.tier and "tier-floor" not in ticket.log().overrides:
         deny("tier-floor", (
             "plan.md declared %s earlier and now says %s. Only a human may lower a tier: "
-            "`./agentwf override tier-floor <reason>`"
+            "`./devgent override tier-floor <reason>`"
         ) % (declared, plan.tier))
     if plan.tier == "T0":
         return
@@ -242,7 +242,7 @@ def _context(root, settings, payload):
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "session": _field(payload, "sessionId", "session_id"),
-        "role": _field(payload, "agentName", "agentType", "agent_type") or os.environ.get("AGENT_ROLE"),
+        "role": _field(payload, "agentName", "agentType", "agent_type") or os.environ.get("DEVGENT_ROLE"),
         "model": os.environ.get("COPILOT_MODEL"),
         "tool": _field(payload, "toolName", "tool_name"),
     }
@@ -265,7 +265,7 @@ def pre_tool_use(payload):
     settings = config.load_settings(root)
     tool = str(_field(payload, "toolName", "tool_name") or "").lower()
     args, raw = _args(payload)
-    role = _field(payload, "agentName", "agentType", "agent_type") or os.environ.get("AGENT_ROLE")
+    role = _field(payload, "agentName", "agentType", "agent_type") or os.environ.get("DEVGENT_ROLE")
 
     paths = []
     try:
@@ -300,7 +300,7 @@ def pre_tool_use(payload):
         _audit(root, record)
         return {
             "permissionDecision": "deny",
-            "permissionDecisionReason": "[agent-workflow:%s] %s" % (deny.gate, deny.reason),
+            "permissionDecisionReason": "[devgent:%s] %s" % (deny.gate, deny.reason),
         }
     return None
 
@@ -344,7 +344,7 @@ def main(event):
         except Exception as exc:  # fail closed, with a reason the agent can read
             decision = {
                 "permissionDecision": "deny",
-                "permissionDecisionReason": "[agent-workflow:hook-error] %s: %s. Run `./agentwf doctor`."
+                "permissionDecisionReason": "[devgent:hook-error] %s: %s. Run `./devgent doctor`."
                                             % (type(exc).__name__, exc),
             }
         if decision:

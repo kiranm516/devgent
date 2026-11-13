@@ -8,12 +8,12 @@ stop and report it; never look for a way around it.
 
 ## Before doing anything
 
-1. Run `./agentwf status`.
+1. Run `./devgent status`.
 2. Read the ticket's folder, `docs/agent-work/<ticket-id>/`: `plan.md` (the frozen contract),
    `log.md` (line 1 is the current state), `review.md` (objections and findings).
    These files are the source of truth, not the chat.
 3. No ticket folder? Stop. The driver creates one with
-   `./agentwf start <ticket-id> --tier T0|T1|T2`
+   `./devgent start <ticket-id> --tier T0|T1|T2`
    on a branch whose name contains the ticket id.
 
 ## Rules
@@ -30,8 +30,8 @@ stop and report it; never look for a way around it.
 - **Raise, never lower.** Any agent may raise a tier; only a human lowers one.
 - **Plan mismatch = stop.** Log it; the architect revises; the plan is approved again.
 - No credentials, production customer data or sensitive payloads in prompts, logs or artifacts.
-- Never edit your own instructions, skills, hooks or `.github/agent-workflow.yml` unless the
+- Never edit your own instructions, skills, hooks or `.github/devgent.yml` unless the
   approved plan names those files.
 
 Conventions for this codebase are in `.github/copilot-instructions.md`. Limits (slice cap, tier
-path rules) are in `.github/agent-workflow.yml`. The human guide is `README.md`.
+path rules) are in `.github/devgent.yml`. The human guide is `README.md`.

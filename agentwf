@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# The agent workflow's command line. Run `./agentwf` for help.
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT/.github/hooks" exec python3 -m agentwf "$@"

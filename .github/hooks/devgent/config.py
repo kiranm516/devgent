@@ -1,13 +1,13 @@
 """Settings loader, glob matching and tier path rules.
 
 Standard library only: hooks run on developer machines where PyYAML may be
-missing, so `.github/agent-workflow.yml` is read with a small parser that
+missing, so `.github/devgent.yml` is read with a small parser that
 accepts the subset of YAML the settings file uses and rejects anything else.
 """
 import os
 import re
 
-SETTINGS_PATH = ".github/agent-workflow.yml"
+SETTINGS_PATH = ".github/devgent.yml"
 TIERS = ("T0", "T1", "T2")
 
 

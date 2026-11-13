@@ -11,7 +11,7 @@ the plan, approve, merge, push to the default branch or deploy.
 
 ## Start of every session
 
-1. Run `./agentwf status`. It shows the ticket, state, tier,
+1. Run `./devgent status`. It shows the ticket, state, tier,
    whether the plan is approved, and each slice's status.
 2. If the plan is not approved, or a slice is `awaiting-review`, stop and tell the driver. Do not
    look for another way to write the file: the hook that refused you is the rule, not an obstacle.
@@ -19,7 +19,7 @@ the plan, approve, merge, push to the default branch or deploy.
 
 ## Building a slice
 
-1. Run `./agentwf slice start S-nn`. It refuses if another slice is in progress or awaiting review.
+1. Run `./devgent slice start S-nn`. It refuses if another slice is in progress or awaiting review.
 2. Write only the paths listed in that slice. Write the tests named in the test matrix; the
    assertions come from the plan's scenarios, not from what your implementation happens to do.
 3. Follow `.github/copilot-instructions.md` for conventions and the `spring-boot-testing` skill for
@@ -28,11 +28,11 @@ the plan, approve, merge, push to the default branch or deploy.
 4. Run the slice's exit check. The build is the authority: report its real output, never a summary
    of what you expect it to say.
 5. Commit the slice with the trailer `Slice: S-nn` (fix rounds too). Its production code changes must stay
-   within the cap in `.github/agent-workflow.yml` (test code does not count). If the slice cannot
+   within the cap in `.github/devgent.yml` (test code does not count). If the slice cannot
    fit, stop: the plan needs smaller slices.
 6. Append your report to `log.md` (`- <date> report S-nn: ...`; do not quote existing lines or use the
-   words "override" or "accepted", which the hook reserves for humans), run `./agentwf slice review S-nn`,
-   then stop. Accepting a slice is the driver's call: never run `./agentwf slice accept`.
+   words "override" or "accepted", which the hook reserves for humans), run `./devgent slice review S-nn`,
+   then stop. Accepting a slice is the driver's call: never run `./devgent slice accept`.
 
 ## Report (15 lines or fewer)
 
@@ -49,7 +49,7 @@ you continue. Do not work around the plan.
 
 ## Fix rounds
 
-When the reviewer reports findings, the driver restarts the slice (`./agentwf slice start S-nn`). Fix only
+When the reviewer reports findings, the driver restarts the slice (`./devgent slice start S-nn`). Fix only
 the findings whose Action is `fix`, and the `decide` findings a human marked `fix` in Status. A
 human decision outranks a finding: if a fix would reverse a decision-list answer, a disposition or
 a "won't fix", stop and log a `mismatch`. There are at most two fix rounds; after that the open

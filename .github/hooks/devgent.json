@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$(git rev-parse --show-toplevel)/.github/hooks\" python3 -m devgent hook pre",
+        "powershell": "$env:PYTHONDONTWRITEBYTECODE='1'; $env:PYTHONPATH=\"$(git rev-parse --show-toplevel)/.github/hooks\"; python -m devgent hook pre",
+        "timeoutSec": 30
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$(git rev-parse --show-toplevel)/.github/hooks\" python3 -m devgent hook post",
+        "powershell": "$env:PYTHONDONTWRITEBYTECODE='1'; $env:PYTHONPATH=\"$(git rev-parse --show-toplevel)/.github/hooks\"; python -m devgent hook post",
+        "timeoutSec": 15
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "bash": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=\"$(git rev-parse --show-toplevel)/.github/hooks\" python3 -m devgent hook post-failure",
+        "powershell": "$env:PYTHONDONTWRITEBYTECODE='1'; $env:PYTHONPATH=\"$(git rev-parse --show-toplevel)/.github/hooks\"; python -m devgent hook post-failure",
+        "timeoutSec": 15
+      }
+    ]
+  }
+}

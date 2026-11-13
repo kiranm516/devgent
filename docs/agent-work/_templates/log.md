@@ -5,7 +5,7 @@ state: TRIAGED
 <!--
 Line 1 is the ticket's single current state:
 TRIAGED, PLANNING, PLAN_APPROVED, IMPLEMENTING, IN_REVIEW, APPROVED, DONE, BLOCKED, ABANDONED.
-Entries are append-only, one line each, oldest first. `./agentwf slice`, `state` and
+Entries are append-only, one line each, oldest first. `./devgent slice`, `state` and
 `override` write the machine-read ones for you:
 
 - 2026-11-13 state TRIAGED -> PLANNING: driver confirmed T1

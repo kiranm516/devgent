@@ -36,7 +36,7 @@ def repo_root(cwd):
 def state_dir(root):
     """Local, never-committed directory for the approval cache and audit log."""
     common = git(root, "rev-parse", "--git-common-dir")
-    path = os.path.join(common if os.path.isabs(common) else os.path.join(root, common), "agent-workflow")
+    path = os.path.join(common if os.path.isabs(common) else os.path.join(root, common), "devgent")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -280,7 +280,7 @@ def _names(ticket_id, branch):
 def resolve_ticket(root, settings):
     """Active ticket for a local session: env, then branch name, then branch diff."""
     tickets = list_tickets(root, settings)
-    env = os.environ.get("AGENT_TICKET")
+    env = os.environ.get("DEVGENT_TICKET")
     if env:
         return Ticket(root, settings, env) if env in tickets else None
     branch = git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False)

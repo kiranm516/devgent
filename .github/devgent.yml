@@ -1,7 +1,7 @@
 # Agent workflow settings. Hooks and CI both read this file, so changing a
 # limit is itself a reviewed (T2) pull request.
 #
-# Parsed by .github/hooks/agentwf/config.py, which accepts plain maps, lists
+# Parsed by .github/hooks/devgent/config.py, which accepts plain maps, lists
 # and scalars only (no anchors, multi-line strings or flow maps).
 version: 1
 
@@ -57,10 +57,10 @@ tier_rules:
     patterns:
       - ".github/hooks/**"
       - ".github/agents/**"
-      - ".github/agent-workflow.yml"
+      - ".github/devgent.yml"
       - "**/CODEOWNERS"
-      - "agentwf"
-      - "agentwf.cmd"
+      - "devgent"
+      - "devgent.cmd"
 
   - name: new-outbound-client
     min_tier: T2
@@ -70,7 +70,7 @@ tier_rules:
       - "**/*Client.java"
 
   # Applies only when CI is told a breaking change was detected
-  # (`agentwf ci --breaking-api-change`, wired to your API diff tool).
+  # (`devgent ci --breaking-api-change`, wired to your API diff tool).
   - name: public-api-breaking-change
     min_tier: T2
     when: breaking-api-change

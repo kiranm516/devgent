@@ -41,7 +41,7 @@ Add a Mermaid diagram when a trigger applies, and only then:
 - a status or lifecycle field gains or changes a transition: stateDiagram-v2
 - steps must happen in an order across deploys (migration, backfill, flag): flowchart
 - T2: the current and the proposed flow, one diagram each
-`./agentwf view` draws the requirement-to-test trace and the slice-to-file map
+`./devgent view` draws the requirement-to-test trace and the slice-to-file map
 from the tables below: never draw those by hand. -->
 
 ### Change map
@@ -63,7 +63,7 @@ Every SC-nn needs a level and a named test. -->
 ## Slices
 
 <!-- Ordered. Each delivers one coherent behaviour with its tests, within the
-production-line cap in .github/agent-workflow.yml. Copy this block per slice:
+production-line cap in .github/devgent.yml. Copy this block per slice:
 
 ### S-01: <goal>
 - Covers: R-01, SC-01
@@ -77,7 +77,7 @@ production-line cap in .github/agent-workflow.yml. Copy this block per slice:
 <!-- The three to five decisions only a human can make: business interpretation,
 risk acceptance, commitments to other teams. One block per decision; CI needs at
 least two options, a recommendation and the approver's answer. The approver writes
-the answer line, or runs `./agentwf answer D-01 A`. Copy this block per decision:
+the answer line, or runs `./devgent answer D-01 A`. Copy this block per decision:
 
 ### D-01: <the question, answerable with one of the options>
 - Why a human: <what makes this not the agent's call>

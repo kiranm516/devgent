@@ -1,4 +1,4 @@
-"""`./agentwf view`: one generated, never-committed HTML page for a ticket.
+"""`./devgent view`: one generated, never-committed HTML page for a ticket.
 
 Everything on it is derived from plan.md, log.md and review.md, so it cannot
 drift from what was approved: what needs a human answer, the decisions, the
@@ -97,7 +97,7 @@ class Model:
                             "owner: %s" % (row.get("owner") or "nobody named")))
         for sid, goal, _, _, status in self.slices:
             if status == "awaiting-review":
-                out.append(("slice", sid, goal, "look at it, then `./agentwf slice accept %s`" % sid))
+                out.append(("slice", sid, goal, "look at it, then `./devgent slice accept %s`" % sid))
         for title, _, rows in self.rounds[-1:]:
             for row in rows:
                 if _clean(row.get("action", "")).lower() == "decide" and _clean(row.get("status", "")).lower() == "open":
@@ -301,7 +301,7 @@ function refresh() {
     const pick = card.querySelector('input[type=radio]:checked');
     if (!card.dataset.decision || !pick) return;
     const note = card.querySelector('input[type=text]').value.trim();
-    lines.push('./agentwf answer ' + card.dataset.decision + ' ' + pick.value +
+    lines.push('./devgent answer ' + card.dataset.decision + ' ' + pick.value +
       (note ? " '" + note.replace(/'/g, "'\\\\''") + "'" : ''));
   });
   out.textContent = lines.join('\\n') || 'Pick an option above.';
@@ -327,7 +327,7 @@ def render(settings, ticket):
         '<h2>Needs you</h2>', _queue_html(model),
     ]
     if model.errors:
-        body.append("<details><summary>%d issue%s <code>./agentwf check</code> would report</summary><ul>%s</ul></details>" % (
+        body.append("<details><summary>%d issue%s <code>./devgent check</code> would report</summary><ul>%s</ul></details>" % (
             len(model.errors), "" if len(model.errors) == 1 else "s",
             "".join("<li>%s</li>" % md(e) for e in model.errors)))
     if plan.tier == "T0":

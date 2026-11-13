@@ -34,7 +34,7 @@ You hand work to an agent by naming it in your prompt, for example
 tier path rules.
 
 ```bash
-./agentwf start ORD-150 --tier T0      # branch ORD-150 and a ticket folder with a task note
+./devgent start ORD-150 --tier T0      # branch ORD-150 and a ticket folder with a task note
 ```
 
 Fill the three sections of `docs/agent-work/ORD-150/plan.md`, or ask the architect to:
@@ -54,7 +54,7 @@ Reproduced by `OrderMapperTest.zeroAmountKeepsCurrency` (new, failing).
 Make the change, commit, open a pull request. There are no slices, no decision list and no plan
 approval; normal PR review covers the diff.
 
-If the fix turns out to touch a migration or security configuration, `./agentwf tier` shows the
+If the fix turns out to touch a migration or security configuration, `./devgent tier` shows the
 higher floor and the hook refuses the write. Start again at that tier; only a human lowers one.
 
 ## 2. A feature, start to merge (T1)
@@ -65,10 +65,10 @@ higher floor and the hook refuses the write. Start again at that tier; only a hu
 
 ```bash
 # In Copilot CLI: "Use the scout agent to triage ORD-142: <ticket text>"  ->  proposes T1
-./agentwf start ORD-142 --tier T1
+./devgent start ORD-142 --tier T1
 # "Use the architect agent to write the plan for ORD-142"
 # "Use the reviewer agent to challenge the plan"
-./agentwf check                        # lists what the plan still lacks
+./devgent check                        # lists what the plan still lacks
 ```
 
 The plan the architect writes looks like this. The IDs are what the gates read: every `R-nn` needs
@@ -167,12 +167,12 @@ From here `plan.md` is frozen: any edit cancels the approval.
 ### Implement, one slice at a time (driver, implementer)
 
 ```bash
-./agentwf slice start S-01
+./devgent slice start S-01
 # "Use the implementer agent to build S-01"   -> it commits with a `Slice: S-01` trailer
-./agentwf slice review S-01            # the implementer runs this when its commit is in
+./devgent slice review S-01            # the implementer runs this when its commit is in
 # you read the slice's diff
-./agentwf slice accept S-01            # human only
-./agentwf slice start S-02             # refused until S-01 is accepted
+./devgent slice accept S-01            # human only
+./devgent slice start S-02             # refused until S-01 is accepted
 ```
 
 While S-01 is active the hook refuses any write outside its `Paths`, so the implementer cannot
@@ -181,14 +181,14 @@ drift into the controller early.
 ### Review and merge (reviewer, approver)
 
 ```bash
-./agentwf state IN_REVIEW
+./devgent state IN_REVIEW
 # "Use the reviewer agent to review the diff"  -> findings, the reviewed commit and a brief in review.md
-./agentwf check
+./devgent check
 gh pr ready
 ```
 
 The approver reads the review brief and the diff and approves on GitHub. After the merge, the
-driver writes the retrospective in `log.md` and runs `./agentwf state DONE`.
+driver writes the retrospective in `log.md` and runs `./devgent state DONE`.
 
 ## 3. Answering decisions as the approver
 
@@ -196,7 +196,7 @@ driver writes the retrospective in `log.md` and runs `./agentwf state DONE`.
 
 ```bash
 gh pr checkout 87
-./agentwf view --open
+./devgent view --open
 ```
 
 The page is generated from the ticket's three markdown files and is never committed. Read it top
@@ -213,11 +213,11 @@ to bottom:
 Pick an option on each card, add a note if you want one on record, and press **Copy commands**:
 
 ```bash
-./agentwf answer D-01 A 'agreed with mobile on 2026-11-12'
+./devgent answer D-01 A 'agreed with mobile on 2026-11-12'
 ```
 
 Editing the `- Answer:` line by hand, or in GitHub's web editor, does the same thing. An answer
-does not have to be one of the letters: `./agentwf answer D-01 neither, see Q-02` is recorded as
+does not have to be one of the letters: `./devgent answer D-01 neither, see Q-02` is recorded as
 written. Then:
 
 1. In `review.md`, write `accepted`, `rejected` (with a reason) or `deferred` (to a named person)
@@ -226,12 +226,12 @@ written. Then:
 3. Submit an approving review on the PR. Approve after the commit: the approval is tied to the
    exact `plan.md` you reviewed.
 
-`./agentwf check` passes the `structure` gate once every decision and objection is settled.
+`./devgent check` passes the `structure` gate once every decision and objection is settled.
 
 ## 4. A risky change with a diagram (T2)
 
 **Use it when** the work touches a path rule: a database migration, security configuration, CI or
-deployment files, or a breaking API change. `./agentwf tier` reports the floor; the scout cannot go
+deployment files, or a breaking API change. `./devgent tier` reports the floor; the scout cannot go
 below it.
 
 A T2 plan adds two things to use case 2:
@@ -254,7 +254,7 @@ flowchart LR
 Rollback is safe up to and including the backfill. After V15 the fix is forward only.
 ````
 
-GitHub renders the diagram in the PR, and `./agentwf view` renders it next to the decisions. The
+GitHub renders the diagram in the PR, and `./devgent view` renders it next to the decisions. The
 other triggers are a flow across more than two components (sequence diagram) and a new or changed
 state transition (state diagram). The trace and the slice map are generated for you; nobody draws
 those by hand.
@@ -273,7 +273,7 @@ The implementer stops and logs it; it does not improvise:
 Then:
 
 ```bash
-./agentwf state PLANNING "mismatch S-02"
+./devgent state PLANNING "mismatch S-02"
 # "Use the architect agent to revise the plan for the S-02 mismatch"
 ```
 
@@ -295,9 +295,9 @@ implementer applies it) or `decide`:
 | F-02 | medium | `OrderController.java:74` | A cancel by support staff is rejected as "not the owner" | Allow the `SUPPORT` role | question | decide | open |
 ```
 
-`F-02` appears under **Needs you** in `./agentwf view`. A human replaces `open` in its Status cell
+`F-02` appears under **Needs you** in `./devgent view`. A human replaces `open` in its Status cell
 with `fix` or `won't fix: support uses the admin API`. For the fixes, the driver restarts the slice
-with `./agentwf slice start S-02`. After two fix rounds the open findings go to the human rather
+with `./devgent slice start S-02`. After two fix rounds the open findings go to the human rather
 than round a third time.
 
 ## 7. Waiting on another team
@@ -314,12 +314,12 @@ it instead of guessing:
 ```
 
 ```bash
-./agentwf state BLOCKED "Q-01, waiting on Priya (billing)"
+./devgent state BLOCKED "Q-01, waiting on Priya (billing)"
 ```
 
 The `structure` gate fails while a blocking question is open. When the answer arrives, set the
 status to `answered` with its source, or the approver writes `risk-accepted`, and move on with
-`./agentwf state PLANNING`.
+`./devgent state PLANNING`.
 
 ## 8. Picking a ticket up again
 
@@ -327,7 +327,7 @@ status to `answered` with its source, or the approver writes `risk-accepted`, an
 
 ```bash
 git switch ORD-142
-./agentwf status
+./devgent status
 ```
 
 ```
@@ -338,10 +338,10 @@ plan approval yes
 slice S-01    accepted
 slice S-02    awaiting-review
 
-next: review S-02, then `./agentwf slice accept S-02` (or `./agentwf slice start S-02` for a fix round)
+next: review S-02, then `./devgent slice accept S-02` (or `./devgent slice start S-02` for a fix round)
 ```
 
-The ticket folder is the memory, not the chat. `./agentwf view --open` gives the same picture with
+The ticket folder is the memory, not the chat. `./devgent view --open` gives the same picture with
 the decisions and their answers, which is the quickest way to learn why the code looks the way it
 does.
 
@@ -349,14 +349,14 @@ does.
 
 | Message contains | What it means | What to do |
 | --- | --- | --- |
-| `ticket` | A source edit with no ticket folder for this branch | `./agentwf start <id> --tier ...` on a branch named after the ticket |
+| `ticket` | A source edit with no ticket folder for this branch | `./devgent start <id> --tier ...` on a branch named after the ticket |
 | `plan-approval` | No approving review covers the current `plan.md` | Commit the plan, open a draft PR, ask the approver. If you edited the plan after approval, it needs approving again. |
 | `slice-paths` | A write outside the active slice's `Paths` | Wrong slice, or the plan missed a file: see [use case 5](#5-the-plan-turns-out-to-be-wrong) |
 | `tier-floor` | The files touched need a higher tier than the plan declares | Raise the tier in `plan.md` and plan to that tier |
 | `slice-size` | A slice changed more production lines than the cap | Split the slice in the plan |
-| `structure` | The plan or the review is incomplete | `./agentwf check` lists each item; `./agentwf view` shows the ones that need a human |
+| `structure` | The plan or the review is incomplete | `./devgent check` lists each item; `./devgent view` shows the ones that need a human |
 | `review` | The diff was not reviewed, or the code changed after the review | Run the reviewer again on the current commit |
 | `dangerous-action` | An agent tried a human-only or destructive command | Run it yourself if it is right; this gate has no override |
 
-A human can override the other gates with a reason (`./agentwf override <gate> <reason>`); every
+A human can override the other gates with a reason (`./devgent override <gate> <reason>`); every
 override is read in the retrospective. Agents never look for a way around a gate.

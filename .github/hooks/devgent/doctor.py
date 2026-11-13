@@ -1,4 +1,4 @@
-"""`agentwf doctor`: find what is wrong or unfinished in a repository's setup."""
+"""`devgent doctor`: find what is wrong or unfinished in a repository's setup."""
 import json
 import os
 import shutil
@@ -37,13 +37,13 @@ class Doctor:
             if os.path.isdir(os.path.join(self.root, ".github/hooks/tests")):
                 self.add(INFO, "this is the kit's own repository (no install manifest)")
             else:
-                self.add(FAIL, "no install manifest found", "run the kit's `./agentwf install <this repo>`")
+                self.add(FAIL, "no install manifest found", "run the kit's `./devgent install <this repo>`")
             return
         self.add(OK, "devgent %s installed" % manifest.get("version"))
         changed = install.modified_shared_files(self.root)
         for rel, what in changed:
             self.add(FAIL if what == "missing" else WARN, "shared file %s: %s" % (what, rel),
-                     "run `./agentwf update --force` to restore it; change shared files in the kit, not here")
+                     "run `./devgent update --force` to restore it; change shared files in the kit, not here")
         if not changed:
             self.add(OK, "%d shared files match the installed version" % len(manifest.get("files", {})))
         if self.offline or not manifest.get("commit") or os.path.isdir(manifest.get("source") or ""):
@@ -53,7 +53,7 @@ class Doctor:
         if latest is None:
             self.add(WARN, "cannot reach the kit at %s to check for updates" % manifest["source"])
         elif latest != manifest["commit"]:
-            self.add(WARN, "a newer kit version is available (%s)" % latest[:10], "run `./agentwf update`")
+            self.add(WARN, "a newer kit version is available (%s)" % latest[:10], "run `./devgent update`")
         else:
             self.add(OK, "kit is up to date")
 
@@ -71,7 +71,7 @@ class Doctor:
                      "list your production host names in %s" % config.SETTINGS_PATH)
         text = self._read(".github/copilot-instructions.md")
         if text is None:
-            self.add(FAIL, ".github/copilot-instructions.md is missing", "run `./agentwf update`")
+            self.add(FAIL, ".github/copilot-instructions.md is missing", "run `./devgent update`")
         elif "TODO" in text:
             self.add(WARN, ".github/copilot-instructions.md still has %d TODO placeholders" % text.count("TODO"),
                      "fill in the stack, database and error-handling conventions")
@@ -96,12 +96,12 @@ class Doctor:
 
     def hook(self):
         self.section = "Local hook"
-        path = ".github/hooks/agent-workflow.json"
+        path = ".github/hooks/devgent.json"
         try:
             entries = json.loads(self._read(path) or "")["hooks"]["preToolUse"]
             command = entries[0]["bash"]
         except (ValueError, KeyError, IndexError, TypeError):
-            self.add(FAIL, "%s is missing or invalid" % path, "run `./agentwf update --force`")
+            self.add(FAIL, "%s is missing or invalid" % path, "run `./devgent update --force`")
             return
         if os.name == "nt":
             self.add(INFO, "hook is registered (live test skipped on Windows)")
@@ -212,7 +212,7 @@ class Doctor:
                          % (branch, REQUIRED_CHECK, "is required" if level == OK else "is not required"),
                          "add `%s` to the required status checks" % REQUIRED_CHECK)
                 self.add(WARN, "cannot read the review and force-push rules for `%s` (needs admin access)" % branch,
-                         "ask a repository admin to run `./agentwf doctor`")
+                         "ask a repository admin to run `./devgent doctor`")
                 return None
         if not seen:
             self.add(FAIL, "default branch `%s` is not protected: CI and reviews are not enforced" % branch,

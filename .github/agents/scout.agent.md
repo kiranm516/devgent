@@ -20,7 +20,7 @@ and carry on with the task the driver gave you.
    expected-versus-actual behaviour. For a technical task, state the engineering outcome and its
    measurable constraints. If either is missing, say so; do not fill the gap.
 2. List the files likely to change, each with the evidence (`path:line`) that led you there.
-3. Apply the path rules in `.github/agent-workflow.yml` to that list. The highest `min_tier` that
+3. Apply the path rules in `.github/devgent.yml` to that list. The highest `min_tier` that
    matches is the floor.
 4. Propose a tier, never below the floor:
    - T0: narrow bug fix, isolated validation change, mechanical refactor.

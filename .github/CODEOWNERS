@@ -4,12 +4,12 @@
 # Replace the placeholders and uncomment. Per the spec, code-owner approval for
 # T2 starts in Phase 2, once these rules cover the sensitive paths and the
 # artifact folder; turn on "Require review from Code Owners" at the same time.
-# Keep the patterns in step with tier_rules in .github/agent-workflow.yml.
+# Keep the patterns in step with tier_rules in .github/devgent.yml.
 
 # The workflow's own gates
 # /.github/hooks/               @your-org/platform-owners
 # /.github/agents/              @your-org/platform-owners
-# /.github/agent-workflow.yml   @your-org/platform-owners
+# /.github/devgent.yml   @your-org/platform-owners
 # /.github/workflows/           @your-org/platform-owners
 # /.github/CODEOWNERS           @your-org/platform-owners
 

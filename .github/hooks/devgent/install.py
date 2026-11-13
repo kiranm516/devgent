@@ -15,15 +15,15 @@ import tempfile
 
 from . import ticket as tk
 
-MANIFEST = ".github/hooks/agentwf/MANIFEST.json"
+MANIFEST = ".github/hooks/devgent/MANIFEST.json"
 AGENTS_MARKER = "devgent:agents-md"
 
 # Replaced on every install. Directories are replaced whole.
 KIT_OWNED = (
-    "agentwf",
-    "agentwf.cmd",
-    ".github/hooks/agent-workflow.json",
-    ".github/hooks/agentwf",
+    "devgent",
+    "devgent.cmd",
+    ".github/hooks/devgent.json",
+    ".github/hooks/devgent",
     ".github/agents/scout.agent.md",
     ".github/agents/architect.agent.md",
     ".github/agents/implementer.agent.md",
@@ -37,7 +37,7 @@ KIT_OWNED = (
 )
 # Created if missing, then left alone: each repository tunes these.
 REPO_OWNED = (
-    ".github/agent-workflow.yml",
+    ".github/devgent.yml",
     ".github/copilot-instructions.md",
     ".github/CODEOWNERS",
 )
