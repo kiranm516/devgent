@@ -12,6 +12,7 @@ This repository is the kit. You install it into each service repository and upda
 - [Doctor](#doctor)
 - [What is shared and what is yours](#what-is-shared-and-what-is-yours)
 - [Using it](#using-it)
+- [Examples](docs/examples.md): worked use cases, from a small fix to a T2 migration
 - [Gates](#gates)
 - [Known limits](#known-limits)
 
@@ -85,7 +86,27 @@ Your own agents, skills and workflows next to the kit's are left alone. The kit'
 ## Using it
 
 Everything goes through `./agentwf` (`agentwf` on Windows). When in doubt, run `./agentwf status`:
-it shows where the ticket stands and the next command to run.
+it shows where the ticket stands and the next command to run. [docs/examples.md](docs/examples.md)
+walks through eight use cases with a complete sample plan.
+
+Two humans and four agents take part. The **driver** runs Copilot CLI and hands work to the agents
+by naming one in the prompt ("Use the scout agent to triage ABC-123"). The **approver** is a second
+person who answers the plan's decisions and approves on GitHub.
+
+A ticket in commands, for a T1 feature:
+
+```bash
+./agentwf start ABC-123 --tier T1        # driver: branch and ticket folder
+./agentwf check                          # driver: what the plan still lacks
+gh pr create --draft --fill              # driver: put the plan in front of the approver
+./agentwf view --open                    # approver: decisions, trace and what needs an answer
+./agentwf answer D-01 A                  # approver: then commit, push, approve the PR
+./agentwf slice start S-01               # driver: then the implementer builds it
+./agentwf slice review S-01              # implementer: slice is committed
+./agentwf slice accept S-01              # driver: after reading the slice
+./agentwf state IN_REVIEW                # driver: all slices accepted, run the reviewer
+gh pr ready                              # driver: the approver reviews the diff
+```
 
 | Step | Who | Command or action |
 | --- | --- | --- |

@@ -209,6 +209,14 @@ class StructureTest(unittest.TestCase):
                 p = tk.Plan(fh.read().replace("{{TIER}}", tier))
             self.assertTrue(tk.check_plan_structure(p), name)
 
+    def test_the_documented_example_plan_passes_once_answered(self):
+        with open(os.path.join(REPO, "docs/examples.md")) as fh:
+            text = re.search(r"````markdown\n(---\nticket: ORD-142.*?)````", fh.read(), flags=re.S).group(1)
+        p = tk.Plan(text)
+        self.assertEqual(tk.check_front_matter(p, "ORD-142"), [])
+        self.assertEqual(tk.check_plan_structure(p), ["Decision D-01 has no approver's answer"])
+        self.assertEqual(tk.check_plan_structure(tk.Plan(text.replace("- Answer:", "- Answer: A"))), [])
+
     def test_task_note(self):
         note = "---\ntier: T0\n---\n## Goal\nfix\n## Files\n`A.java`\n## Checks\n`./gradlew test`\n"
         self.assertEqual(tk.check_plan_structure(tk.Plan(note)), [])
