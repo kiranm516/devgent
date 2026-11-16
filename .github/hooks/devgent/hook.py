@@ -182,8 +182,8 @@ def check_write(root, settings, rel, raw, role, approval=tk.plan_approval, waive
     plan = ticket.plan() if ticket else None
     if ticket is None:
         deny("ticket", (
-            "no ticket for this branch. Create %s/<ticket-id>/plan.md first "
-            "(`./devgent start <ticket-id> --tier <tier>`)"
+            "no ticket in this checkout. The driver runs `./devgent start <ticket-id> --tier <tier>`, "
+            "which creates the ticket's worktree with %s/<ticket-id>/plan.md; work there"
         ) % settings.artifact_root)
         return
     if plan is None or plan.tier not in config.TIERS:

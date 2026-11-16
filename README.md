@@ -31,7 +31,7 @@ do in this repository. Work through that list; `./devgent doctor` re-checks it a
 Typically it is:
 
 1. **Conventions**: fill in the TODOs in `.github/copilot-instructions.md`.
-2. **Path rules**: adjust `tier_rules` and `slice.production_paths` in `.github/devgent.yml` to the repository's layout.
+2. **Path rules**: adjust `tier_rules` and `slice.production_paths` in `.github/devgent.yml` to the repository's layout. Set `worktrees.dir` there if ticket worktrees should live somewhere other than next to the checkout.
 3. **Owners**: replace the placeholders in `.github/CODEOWNERS` and uncomment the rules.
 4. **Merge**: commit, open a pull request and merge it. The `gates` check fails on this first PR because it carries no ticket folder, so merge it before step 5.
 5. **Branch protection** on the default branch (repository admin): require a pull request with one approving review, dismiss stale approvals on new commits, require the `gates` status check, block force pushes.
@@ -69,7 +69,7 @@ It checks, and gives a fix for each problem:
 | Local hook | runs the registered hook with a test force push and expects it to be blocked |
 | Developer machine | Python version, Copilot CLI, `gh` installed and logged in |
 | GitHub | default branch requires a PR with an approval, dismisses stale approvals, requires `gates`, blocks force pushes |
-| Current ticket | the branch's ticket folder is well formed |
+| Current ticket | this checkout's ticket folder is well formed |
 
 It exits non-zero when there is a problem, so it can run in a setup script. `--offline` skips the checks that need the network.
 
@@ -78,7 +78,7 @@ It exits non-zero when there is a problem, so it can run in a setup script. `--o
 | | Files | On update |
 | --- | --- | --- |
 | **Shared** (the kit) | `devgent`, `devgent.cmd`, `.github/hooks/devgent.json`, `.github/hooks/devgent/`, the four agents in `.github/agents/`, the four skills in `.github/skills/`, `.github/workflows/agent-gates.yml`, `docs/agent-work/_templates/`, `AGENTS.md` | Replaced. Do not edit them in a service repository; change them here. |
-| **Yours** (per repository) | `.github/devgent.yml` (slice cap, WIP limits, tier path rules), `.github/copilot-instructions.md` (conventions), `.github/CODEOWNERS` | Created on first install, then never touched |
+| **Yours** (per repository) | `.github/devgent.yml` (slice cap, WIP limits, tier path rules, worktree location), `.github/copilot-instructions.md` (conventions), `.github/CODEOWNERS` | Created on first install, then never touched |
 | **Yours** (per ticket) | `docs/agent-work/<ticket-id>/` | Never touched |
 
 Your own agents, skills and workflows next to the kit's are left alone. The kit's four skill folders and `docs/agent-work/_templates/` belong to it whole: if you add a file inside one, install and update stop and list it instead of deleting it.
@@ -87,11 +87,17 @@ Your own agents, skills and workflows next to the kit's are left alone. The kit'
 
 Everything goes through `./devgent` (`devgent` on Windows). When in doubt, run `./devgent status`:
 it shows where the ticket stands and the next command to run. [docs/examples.md](docs/examples.md)
-walks through eight use cases with a complete sample plan.
+walks through nine use cases with a complete sample plan.
 
 Two humans and four agents take part. The **driver** runs Copilot CLI and hands work to the agents
 by naming one in the prompt ("Use the scout agent to triage ABC-123"). The **approver** is a second
 person who answers the plan's decisions and approves on GitHub.
+
+Every ticket gets its own **git worktree**: a separate checkout next to the repository, on a branch
+named after the ticket. `./devgent start` creates it, and from then on the ticket's commands, agent
+session and PR all run inside that folder. The main checkout stays on the default branch, so a
+developer runs several tickets side by side without stashing or switching. See
+[one worktree per ticket](#one-worktree-per-ticket) below.
 
 A ticket in commands, for a T1 feature:
 
@@ -129,13 +135,29 @@ gh pr ready                              # driver: the approver reviews the diff
 | `./devgent answer D-01 A [note]` | Writes the approver's answer on that decision's `- Answer:` line in `plan.md` |
 | `./devgent override <gate> <reason>` | Records a human override in `log.md` |
 
-- **One worktree per ticket.** `start` leaves the checkout it runs in alone and creates `../<repo-folder>.worktrees/<ticket-id>/` (`worktrees.dir` in `.github/devgent.yml` moves them), so a developer works several tickets at once, each in its own folder with its own agent session. The main checkout stays on the default branch. Run `start` from inside a ticket's worktree and the new branch stacks on that ticket. If the branch `<ticket-id>` already exists locally or on `origin`, the worktree checks it out instead, which is how a colleague joins a ticket. `./devgent status` in the main checkout lists the tickets open in worktrees. The approval cache, audit log and `view` pages live in the main checkout's `.git/devgent/`, shared by all worktrees. After `DONE`, `git worktree remove <path>` from the main checkout cleans up.
 - The branch name must contain the ticket id (or set `DEVGENT_TICKET`).
 - Any change to `plan.md` cancels its approval, answers included: commit the answers first, then approve.
 - A T0 ticket carries only a short task note in `plan.md`. The driver approves it and normal PR review covers the diff.
 - Agents may run `status`, `check`, `tier`, `view`, `slice start` and `slice review`. The hook blocks them from `override`, `answer`, `slice accept`, `update` and `install`.
 - Markdown is the record; the page from `view` is generated from it, lives under `.git/devgent/view/` and is never committed. Agents draw Mermaid diagrams in `plan.md` only when a trigger in the template applies. The page loads Mermaid from a CDN to draw them and shows their source when offline.
 - A decision is a `### D-01: question` block in `plan.md` with lettered options, a recommendation and its rationale. CI needs at least two options, a recommendation and the answer.
+
+### One worktree per ticket
+
+```bash
+cd ~/src/orders                               # the main checkout, on main
+./devgent start ORD-142 --tier T1             # creates ../orders.worktrees/ORD-142 on branch ORD-142
+./devgent start ORD-150 --tier T0             # a second ticket, next to the first; main is still on main
+./devgent status                              # lists both tickets with their state and folder
+cd ../orders.worktrees/ORD-142 && copilot     # one agent session per ticket
+```
+
+- **Where they go.** `../<repo-folder>.worktrees/<ticket-id>/` next to the main checkout. `worktrees.dir` in `.github/devgent.yml` moves them for the whole repository (relative to the main checkout); `--path <dir>` moves one. A folder inside the repository also needs a `.gitignore` entry.
+- **Which commit they start from.** The HEAD of the checkout `start` runs in, like `git switch -c`. From the main checkout on `main` that is `main`; from inside another ticket's worktree the new branch stacks on that ticket, and `start` prints which.
+- **Joining a ticket.** If the branch `<ticket-id>` already exists locally or on `origin`, `start` checks it out into the worktree instead of creating one, and scaffolds the folder only if it is missing. That is how a colleague, the approver or a new machine picks a ticket up.
+- **Staying in one checkout.** `start --here` switches the current checkout to the new branch, as before. Running `start` on a branch that already names the ticket scaffolds in place.
+- **Shared state.** The approval cache, the audit log and `view` pages live in the main checkout's `.git/devgent/`, shared by every worktree. The hook judges each write by the worktree it runs in; another ticket's worktree is outside the repository to it.
+- **Cleaning up.** After `DONE`, `./devgent status` prints the `git worktree remove` command. The branch stays until you delete it.
 
 ## Gates
 
@@ -168,6 +190,7 @@ Only a human sets an override. Each names one gate and a reason, and is reviewed
 - **Timeouts.** A hook timeout lets the tool call through; a hook crash blocks it.
 - **CI judges a PR by the base branch's settings**, so a PR cannot relax the rules it is checked against; a settings change takes effect after it merges. The gate code and workflow file still come from the PR, which is why they are T2 paths with code owners.
 - **Approval cache.** A plan approval is cached locally for 10 minutes, so a withdrawn approval can take that long to register in the hook.
+- **Worktrees start clean.** A new worktree holds only tracked files: untracked `.env` files, IDE settings and build caches are not copied, so the first build in it starts from scratch. `git worktree` needs git 2.17 or newer for the `origin/<ticket-id>` shortcut; `doctor` does not check the git version.
 - **Role and model.** The CLI reports the agent only for subagents and never the model, so role limits apply only then, and the audit log's `model` is empty unless `COPILOT_MODEL` is set.
 - **Per-agent models.** The agent files leave `model` as a comment; whether the CLI honours it for subagents is unconfirmed.
 - **Not machine-checked:** one plan awaiting approval per driver, the two-fix-round cap, and breaking API changes (pass `--breaking-api-change` to `devgent check` in the workflow file, from your own detector).

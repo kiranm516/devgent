@@ -1039,10 +1039,13 @@ class DocsTest(unittest.TestCase):
             with open(os.path.join(REPO, rel), encoding="utf-8") as fh:
                 return fh.read()
         readme = read("README.md")
-        for text in ("--here", "--path", "worktrees.dir", "git worktree remove"):
+        for text in ("### One worktree per ticket", "(#one-worktree-per-ticket)", "--here", "--path",
+                     "worktrees.dir", "git worktree remove"):
             self.assertIn(text, readme)
         self.assertIn("worktree", read("AGENTS.md"))
-        self.assertIn("worktrees/ORD-142", read("docs/examples.md"))
+        examples = read("docs/examples.md")
+        for text in ("worktrees/ORD-142", "## 9. Two tickets at once", "(#9-two-tickets-at-once)"):
+            self.assertIn(text, examples)
         self.assertIn("worktrees:", read(config.SETTINGS_PATH))
 
 

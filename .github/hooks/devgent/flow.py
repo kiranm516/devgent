@@ -15,8 +15,9 @@ def _active(root):
     settings = config.load_settings(root)
     ticket = tk.resolve_ticket(root, settings)
     if ticket is None:
-        raise FlowError("no active ticket: the branch name must contain the ticket id "
-                        "(start one with `./devgent start <ticket-id> --tier T1`)")
+        raise FlowError("no active ticket: the branch name must contain the ticket id. Start one with "
+                        "`./devgent start <ticket-id> --tier T1` and work inside the worktree it creates; "
+                        "`./devgent status` lists the tickets already open in worktrees")
     if ticket.read("log.md") is None:
         raise FlowError("%s is missing" % ticket.rel("log.md"))
     return settings, ticket

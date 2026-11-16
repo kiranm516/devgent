@@ -12,6 +12,7 @@ which command moves the ticket on. The service, ticket ids and class names are m
 - [6. A review finding only a human can settle](#6-a-review-finding-only-a-human-can-settle)
 - [7. Waiting on another team](#7-waiting-on-another-team)
 - [8. Picking a ticket up again](#8-picking-a-ticket-up-again)
+- [9. Two tickets at once](#9-two-tickets-at-once)
 - [When a gate says no](#when-a-gate-says-no)
 
 ## The people and the agents
@@ -27,6 +28,10 @@ which command moves the ticket on. The service, ticket ids and class names are m
 
 You hand work to an agent by naming it in your prompt, for example
 `Use the scout agent to triage ORD-142: <ticket text>`.
+
+The service below is checked out at `~/src/orders`. `./devgent start` gives each ticket its own
+worktree next to it, `~/src/orders.worktrees/<ticket-id>`, and every command after `start` runs
+inside that folder; the examples write the `cd` once and then assume it.
 
 ## 1. A small fix (T0)
 
@@ -197,9 +202,12 @@ driver writes the retrospective in `log.md` and runs `./devgent state DONE`.
 **Use it when** a driver asks you to approve a plan.
 
 ```bash
-gh pr checkout 87
+./devgent start ORD-142 --tier T1       # the branch exists on origin: this checks it out into a worktree of your own
+cd ../orders.worktrees/ORD-142
 ./devgent view --open
 ```
+
+(`gh pr checkout 87` in a spare checkout works too; the worktree just keeps your own work untouched.)
 
 The page is generated from the ticket's three markdown files and is never committed. Read it top
 to bottom:
@@ -333,9 +341,6 @@ cd ../orders.worktrees/ORD-142          # your own worktree; or, on another mach
 ./devgent status
 ```
 
-`./devgent status` in the main checkout lists every ticket open in a worktree, with its state and
-path, when you forget where one lives.
-
 ```
 ticket        ORD-142
 state         IMPLEMENTING
@@ -349,13 +354,50 @@ next: review S-02, then `./devgent slice accept S-02` (or `./devgent slice start
 
 The ticket folder is the memory, not the chat. `./devgent view --open` gives the same picture with
 the decisions and their answers, which is the quickest way to learn why the code looks the way it
-does.
+does. When you forget where a ticket lives, `./devgent status` in the main checkout lists every
+ticket open in a worktree with its state and path.
+
+## 9. Two tickets at once
+
+**Use it when** a ticket is waiting (plan approval, a slice review, another team) and you want to
+move another one on in the meantime.
+
+```bash
+cd ~/src/orders                          # the main checkout, on main
+./devgent start ORD-142 --tier T1        # -> ../orders.worktrees/ORD-142
+./devgent start ORD-150 --tier T0        # -> ../orders.worktrees/ORD-150; ORD-142 is untouched
+./devgent status
+```
+
+```
+no active ticket on this branch
+
+tickets in other worktrees of this repository:
+  ORD-142        PLANNING       /home/me/src/orders.worktrees/ORD-142
+  ORD-150        TRIAGED        /home/me/src/orders.worktrees/ORD-150
+
+next: `./devgent start <ticket-id> --tier T0|T1|T2` creates the ticket's worktree (...)
+```
+
+Open one Copilot CLI session per worktree. Each session sees only its own ticket: the hook
+resolves the ticket from the worktree it runs in, and a write into the other ticket's folder is
+refused as outside the repository. Both tickets share the main checkout's `.git`, so fetches, the
+audit log and the approval cache are common; branches, working files and pull requests are separate.
+
+When ORD-150 is merged and its state is `DONE`, `./devgent status` inside it prints the clean-up:
+
+```bash
+git -C ~/src/orders worktree remove ~/src/orders.worktrees/ORD-150
+```
+
+For a quick fix you would rather make in the checkout you are in, `./devgent start ORD-151 --tier T0 --here`
+switches that checkout to the new branch instead of creating a worktree.
 
 ## When a gate says no
 
 | Message contains | What it means | What to do |
 | --- | --- | --- |
-| `ticket` | A source edit with no ticket folder for this branch | `./devgent start <id> --tier ...` on a branch named after the ticket |
+| `ticket` | A source edit in a checkout with no ticket folder | `./devgent start <id> --tier ...`, then work inside the worktree it creates |
 | `plan-approval` | No approving review covers the current `plan.md` | Commit the plan, open a draft PR, ask the approver. If you edited the plan after approval, it needs approving again. |
 | `slice-paths` | A write outside the active slice's `Paths` | Wrong slice, or the plan missed a file: see [use case 5](#5-the-plan-turns-out-to-be-wrong) |
 | `tier-floor` | The files touched need a higher tier than the plan declares | Raise the tier in `plan.md` and plan to that tier |
