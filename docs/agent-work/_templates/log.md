@@ -16,9 +16,10 @@ Entries are append-only, one line each, oldest first. `./devgent slice`, `state`
 - 2026-11-13 slice S-01 awaiting-review
 - 2026-11-13 slice S-01 accepted
 - 2026-11-13 report S-01: <what changed, tests and exact result, deviations>
-- 2026-11-13 mismatch S-02: <finding that sends the ticket back to planning>
+- 2026-11-13 mismatch S-02 (low-level): <finding that sends the ticket back to planning>
 - 2026-11-13 override <gate> by <human name>: <reason>
 
+A mismatch names the layer of the plan that was wrong: functional, high-level or low-level.
 Hooks and CI read the `slice` and `override` lines. Only a human writes an
 override line. BLOCKED names the question waited on and its owner; ABANDONED says why.
 -->
@@ -27,6 +28,8 @@ override line. BLOCKED names the question waited on and its owner; ABANDONED say
 
 <!-- Written by the driver after merge:
 - What did the plan miss, and which questions surfaced late?
+- Which layer did the objections and mismatches land in (functional, high-level, low-level),
+  and what does that say about the scout's evidence or the architect's instructions?
 - Which review findings were valid, and which were noise?
 - Were any gates overridden, and was that the right call?
 - Which instruction, skill or hook should change?

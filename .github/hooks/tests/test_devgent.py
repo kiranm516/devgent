@@ -24,6 +24,74 @@ base_commit: abc123
 ---
 # Plan: ABC-1
 
+## Functional Scenarios
+
+### Problem and outcome
+Reject orders without a customer id.
+
+### Requirements
+- R-01: A request without a customer id is rejected with 400.
+- R-02: A valid request is stored.
+
+### Scenarios
+| ID | Scenario | Covers | Expected result |
+| --- | --- | --- | --- |
+| SC-01 | Missing customer id | R-01 | 400 |
+| SC-02 | Valid order | R-02 | 201 |
+
+## High-Level Design
+
+### Current flow
+Orders are stored unchecked (`OrderService.java:12`).
+
+### Proposed flow
+The service validates first.
+
+## Low-Level Design
+
+### Change map
+| File | Change | Reason |
+| --- | --- | --- |
+| src/main/java/app/OrderService.java | validate | R-01 |
+
+### Test matrix
+| Scenario | Level | Test |
+| --- | --- | --- |
+| SC-01 | Unit | OrderServiceTest.rejectsMissingCustomer |
+| SC-02 | Integration | OrderFlowIT.storesOrder |
+
+### Slices
+#### S-01: validation
+- Covers: R-01, SC-01
+- Paths: `src/main/java/app/OrderService.java`, `src/test/java/app/**`
+- Exit check: `./gradlew test` passes
+
+#### S-02: storage
+- Covers: R-02
+- Paths:
+  - `src/main/java/app/OrderRepository.java`
+
+## Decision list
+### D-01: Reject or default?
+- Layer: functional
+- Why a human: changes what clients see
+- A: Reject with 400.
+- B: Default to the guest customer,
+  which hides bad clients.
+- Recommendation: A, because no caller omits the id today
+- Reversible: yes
+- Answer: {answer}
+"""
+
+# The layout of plans written before the three layers: still valid, because an approved plan is frozen.
+FLAT_PLAN = """---
+ticket: ABC-1
+tier: {tier}
+plan_version: 1
+base_commit: abc123
+---
+# Plan: ABC-1
+
 ## Problem and outcome
 Reject orders without a customer id.
 
@@ -75,14 +143,18 @@ Current flow, proposed flow.
 
 REVIEW = """# Review: ABC-1
 ## Plan objections
-| ID | Objection | Disposition | Reason or owner |
-| --- | --- | --- | --- |
-| O-01 | No timeout scenario | {disposition} | {note} |
+| ID | Layer | Objection | Disposition | Reason or owner |
+| --- | --- | --- | --- | --- |
+| O-01 | functional | No timeout scenario | {disposition} | {note} |
 """
 
 
 def plan(tier="T1", answer="A"):
     return PLAN.format(tier=tier, answer=answer)
+
+
+def flat_plan(tier="T1", answer="A"):
+    return FLAT_PLAN.format(tier=tier, answer=answer)
 
 
 def review(disposition="accepted", note=""):
@@ -199,23 +271,74 @@ class StructureTest(unittest.TestCase):
         self.assertIn("not a table row", tk.check_plan_structure(tk.Plan(table))[0])
 
     def test_untested_requirement_and_missing_change_map(self):
-        text = plan().replace("| SC-02 | Integration | OrderFlowIT.storesOrder |\n", "")
-        text = text.replace("### Change map", "### Notes")
-        errors = tk.check_plan_structure(tk.Plan(text))
-        self.assertIn("Test matrix: scenario SC-02 has no test level and named test", errors)
-        self.assertIn("Requirement R-02 maps to no test", errors)
-        self.assertIn("Design: `### Change map` is missing or empty", errors)
+        untested = plan().replace("| SC-02 | Integration | OrderFlowIT.storesOrder |\n", "")
+        errors = tk.check_plan_structure(tk.Plan(untested))
+        self.assertEqual(errors, ["Test matrix: scenario SC-02 has no test level and named test",
+                                  "Requirement R-02 maps to no test"])
+        self.assertEqual(tk.check_plan_structure(tk.Plan(plan().replace("### Change map", "### Notes"))),
+                         ["Low-Level Design: `### Change map` is missing or empty"])
 
     def test_blocking_question_and_t2_alternatives(self):
         text = plan("T2") + (
-            "\n## Open questions\n| ID | Question | Owner | Blocking | Answer source | Status |\n"
-            "| --- | --- | --- | --- | --- | --- |\n| Q-01 | Idempotent? | pay team | yes | pay team | {s} |\n"
+            "\n## Open questions\n| ID | Question | Layer | Owner | Blocking | Answer source | Status |\n"
+            "| --- | --- | --- | --- | --- | --- | --- |\n| Q-01 | Idempotent? | {layer} | pay team | yes | pay team | {s} |\n"
         )
-        errors = tk.check_plan_structure(tk.Plan(text.format(s="open")))
+        errors = tk.check_plan_structure(tk.Plan(text.format(s="open", layer="High level")))
         self.assertEqual(errors, ["Open question Q-01 is blocking and unresolved",
-                                  "T2 plan needs a non-empty `## Alternatives` section"])
-        ok = text.format(s="risk-accepted") + "\n## Alternatives\nPolling; lost on latency.\n"
-        self.assertEqual(tk.check_plan_structure(tk.Plan(ok)), [])
+                                  "T2 plan needs a non-empty `### Alternatives` section in the High-Level Design"])
+        ok = text.replace("## Low-Level Design", "### Alternatives\nPolling; lost on latency.\n\n## Low-Level Design")
+        self.assertEqual(tk.check_plan_structure(tk.Plan(ok.format(s="risk-accepted", layer="high-level"))), [])
+        self.assertEqual(tk.check_plan_structure(tk.Plan(ok.format(s="answered", layer="the pay team"))),
+                         ["Open question Q-01 needs its layer in a `Layer` column (functional, high-level or low-level)"])
+        # T2 shows the current flow as well as the proposed one
+        no_current = ok.format(s="answered", layer="low-level").replace("### Current flow", "### Background")
+        self.assertEqual(tk.check_plan_structure(tk.Plan(no_current)),
+                         ["High-Level Design: a T2 plan needs a non-empty `### Current flow`"])
+
+    def test_each_layer_is_required_and_holds_its_own_level(self):
+        check = lambda text: tk.check_plan_structure(tk.Plan(text))
+        p = tk.Plan(plan())
+        self.assertTrue(p.layered)
+        self.assertEqual(sorted(p.layers), ["functional", "high-level", "low-level"])
+        self.assertEqual(p.slice_covers, {"S-01": {"R-01", "SC-01"}, "S-02": {"R-02"}})
+        self.assertEqual(check(plan().replace("## High-Level Design", "## Notes")),
+                         ["plan.md is missing a non-empty `## High-Level Design` layer"])
+        # headings alone are not a design, and the functional parts live in the functional layer
+        self.assertEqual(check(plan().replace("The service validates first.\n", "")),
+                         ["High-Level Design: `### Proposed flow` is missing or empty"])
+        moved = plan().replace("### Requirements", "### Rules").replace("### Current flow", "### Requirements")
+        self.assertEqual(check(moved), ["Functional Scenarios: `### Requirements` is missing or empty"])
+        # the functional layer describes behaviour: a file reference belongs to the design
+        leak = plan().replace("| Missing customer id |", "| `OrderController.java:40` gets no id, see src/main/java/app |")
+        self.assertEqual(check(leak), [
+            "Functional Scenarios: names implementation files (`OrderController.java:40`, `src/main/java/app`); "
+            "describe observable behaviour here and keep files and classes in the design layers"])
+        self.assertEqual(check(plan().replace("rejected with 400", "rejected with 400 as `application/problem+json`")), [])
+        # every scenario reaches a slice, by its own id or through a requirement it covers
+        self.assertEqual(check(plan().replace("- Covers: R-02\n", "- Covers: nothing yet\n")),
+                         ["Scenario SC-02 reaches no slice: name it, or a requirement it covers, in a slice's `- Covers:`"])
+        # slices sit one level below `### Slices`
+        self.assertEqual(check(plan().replace("#### S-0", "### S-0")),
+                         ["Low-Level Design: `### Slices` is missing or empty"])
+        # a decision says which layer it belongs to, so the driver knows who can clarify it
+        for layer in ("", "business"):
+            self.assertEqual(check(plan().replace("- Layer: functional", "- Layer: " + layer)),
+                             ["Decision D-01 needs its layer (`- Layer: functional, high-level or low-level`)"])
+        self.assertEqual(check(plan().replace("- Layer: functional", "- Layer: **Low level**")), [])
+
+    def test_a_plan_in_the_flat_layout_stays_valid(self):
+        p = tk.Plan(flat_plan())
+        self.assertFalse(p.layered)
+        self.assertEqual(tk.check_plan_structure(p), [])
+        self.assertEqual(p.slices["S-02"], ["src/main/java/app/OrderRepository.java"])
+        text = flat_plan().replace("| SC-02 | Integration | OrderFlowIT.storesOrder |\n", "")
+        errors = tk.check_plan_structure(tk.Plan(text.replace("### Change map", "### Notes")))
+        self.assertIn("Requirement R-02 maps to no test", errors)
+        self.assertIn("Design: `### Change map` is missing or empty", errors)
+        self.assertEqual(tk.check_plan_structure(tk.Plan(flat_plan("T2"))),
+                         ["T2 plan needs a non-empty `## Alternatives` section"])
+        self.assertEqual(tk.check_plan_structure(tk.Plan(flat_plan().replace("## Design", "## Sketch"))),
+                         ["plan.md is missing a non-empty `## Design` section"])
 
     def test_templates_are_not_ready_for_approval(self):
         for name, tier in (("plan.md", "T1"), ("task-note.md", "T0")):
@@ -243,8 +366,13 @@ class StructureTest(unittest.TestCase):
         self.assertTrue(check(review("")))
         self.assertTrue(check(review("rejected")))
         self.assertTrue(check(review("deferred")))
-        rows = "".join("| O-0%d | x | accepted | |\n" % i for i in range(2, 7))
+        rows = "".join("| O-0%d | low-level | x | accepted | |\n" % i for i in range(2, 7))
         self.assertIn("limit is 5", check(review() + rows)[0])
+        # an objection names the layer it is about; a review written before the column existed has none
+        self.assertEqual(check(review().replace("| functional |", "| design |")),
+                         ["Objection O-01 needs its layer: functional, high-level or low-level"])
+        old = "## Plan objections\n| ID | Objection | Disposition | Reason or owner |\n| --- | --- | --- | --- |\n"
+        self.assertEqual(check(old + "| O-01 | No timeout scenario | accepted | |\n"), [])
 
     def test_log(self):
         with open(os.path.join(REPO, "docs/agent-work/_templates/log.md")) as fh:
@@ -792,7 +920,7 @@ class RepoTest(unittest.TestCase):
         self.ticket(answer="")
         self.write("docs/agent-work/ABC-1/plan.md", plan(answer="").replace(
             "| SC-02 | Integration | OrderFlowIT.storesOrder |\n", "").replace(
-            "Current flow, proposed flow.", "```mermaid\nsequenceDiagram\n  A->>B: <order>\n```"))
+            "The service validates first.", "```mermaid\nsequenceDiagram\n  A->>B: <order>\n```"))
         self.write("docs/agent-work/ABC-1/review.md", review("") + (
             "## Diff findings\n### Round 1\n\nReviewed head: `abc1234def`\n\n"
             "| ID | Severity | File:line | Failure scenario | Recommended fix | Type | Action | Status |\n"
@@ -812,6 +940,66 @@ class RepoTest(unittest.TestCase):
         self.assertNotIn("<b>null</b>", page)
         self.assertEqual(view.run(self.root), 0)
         self.assertEqual(self.git("status", "--porcelain", "--ignored").count(".html"), 0)
+
+    def test_view_follows_the_layers_of_the_plan(self):
+        self.ticket()
+        self.write(self.SRC, "class OrderService {}\n")
+        self.write("docs/agent-work/ABC-1/plan.md", plan() + (
+            "\n## Open questions\n| ID | Question | Layer | Owner | Blocking | Answer source | Status |\n"
+            "| --- | --- | --- | --- | --- | --- | --- |\n"
+            "| Q-01 | Do guests count as customers? | functional | Priya | yes | | open |\n"
+            "| Q-02 | Is the pool large enough? | high-level | Sam | no | | open |\n"))
+        self.commit("source file and questions")
+        ticket = tk.Ticket(self.root, self.settings, "ABC-1")
+        page = view.render(self.settings, ticket)
+        order = [page.index('<h2 id="%s">' % anchor)
+                 for anchor in ("decisions", "functional", "high-level", "low-level", "questions", "review", "references")]
+        self.assertEqual(order, sorted(order))              # behaviour first, files last
+        for anchor in ("functional", "high-level", "low-level", "references"):
+            self.assertIn('<a href="#%s">' % anchor, page)  # and a way to jump between them
+        self.assertIn("Orders are stored unchecked", page)  # the design reads as written
+        self.assertIn('<li id="R-01">', page)
+        self.assertIn('<a class="ref" href="#R-01">R-01</a>', page)   # ids link to where they are shown
+        self.assertIn('<span class="pill layer">functional</span>', page)
+        # a short file name resolves when one tracked file ends with it
+        refs = dict((ref, link) for ref, link, _ in view.references(self.root, ticket.plan()))
+        self.assertEqual(refs["OrderService.java:12"], "file://" + os.path.join(self.root, self.SRC))
+        self.assertIsNone(refs["src/main/java/app/OrderRepository.java"])   # not written yet
+        self.assertEqual(view._web_base(self.root), None)                   # no hosted remote here
+        self.git("remote", "add", "origin", "git@github.example.com:acme/orders.git")
+        self.assertEqual(view._web_base(self.root), "https://github.example.com/acme/orders")
+        base = self.git("rev-parse", "HEAD")
+        hosted = tk.Plan(plan().replace("base_commit: abc123", "base_commit: " + base))
+        self.assertEqual(dict((r, l) for r, l, _ in view.references(self.root, hosted))["OrderService.java:12"],
+                         "https://github.example.com/acme/orders/blob/%s/%s#L12" % (base, self.SRC))
+        self.git("remote", "remove", "origin")
+        self.assertNotIn("src/test/java/app/**", refs)
+
+        functional = view.render_functional(self.settings, ticket)
+        self.assertIn("Reject orders without a customer id.", functional)
+        self.assertIn("<td>Unit</td>", functional)          # how a scenario is checked, not by which class
+        for hidden in ("OrderServiceTest", "OrderService.java", "S-01", "Q-02", "<nav>", "<input", "devgent answer"):
+            self.assertNotIn(hidden, functional)
+        self.assertIn("Do guests count as customers?", functional)
+        self.assertIn("Reject or default?", functional)     # the decision tagged functional, read-only
+        self.assertEqual(view.run(self.root, functional=True), 0)
+        self.assertTrue(os.path.exists(os.path.join(self.root, ".git/devgent/view/ABC-1-functional.html")))
+        self.assertIn("Orders are stored unchecked",        # the flat layout draws its design too
+                      view.render(self.settings, self._flat_ticket()).replace("Current flow, proposed flow.",
+                                                                              "Orders are stored unchecked"))
+
+    def _flat_ticket(self):
+        self.write("docs/agent-work/ABC-1/plan.md", flat_plan())
+        return tk.Ticket(self.root, self.settings, "ABC-1")
+
+    def test_ci_passes_a_plan_in_the_flat_layout(self):
+        self.ticket()
+        self.write("docs/agent-work/ABC-1/plan.md", flat_plan())
+        self.commit("plan written before the layers")
+        self.slice_commit(self.SRC, 10)
+        rows, failed = self.result()
+        self.assertFalse(failed, rows)
+        self.assertEqual(rows["structure"][0], ci.PASS)
 
     def next(self, approved=None):
         ticket = tk.Ticket(self.root, self.settings, "ABC-1")
@@ -1047,6 +1235,30 @@ class DocsTest(unittest.TestCase):
         for text in ("worktrees/ORD-142", "## 9. Two tickets at once", "(#9-two-tickets-at-once)"):
             self.assertIn(text, examples)
         self.assertIn("worktrees:", read(config.SETTINGS_PATH))
+
+    def test_docs_templates_and_agents_describe_the_three_layers(self):
+        def read(rel):
+            with open(os.path.join(REPO, rel), encoding="utf-8") as fh:
+                return fh.read()
+        headings = ["## %s" % heading for _, heading, _ in tk.LAYERS]
+        for rel in ("docs/agent-work/_templates/plan.md", "docs/examples.md"):
+            for heading in headings:
+                self.assertIn(heading + "\n", read(rel), rel)
+        for rel in ("README.md", ".github/agents/architect.agent.md"):
+            for _, heading, _ in tk.LAYERS:
+                self.assertIn(heading, read(rel), rel)
+        readme, examples = read("README.md"), read("docs/examples.md")
+        for text in ("### A plan in three layers", "(#a-plan-in-three-layers)", "view --functional"):
+            self.assertIn(text, readme)
+        for text in ("## 10. Showing the scenarios to a BA, PO or QE", "(#10-showing-the-scenarios-to-a-ba-po-or-qe)",
+                     "view --functional"):
+            self.assertIn(text, examples)
+        self.assertIn("| ID | Layer | Objection |", read("docs/agent-work/_templates/review.md"))
+        self.assertIn("mismatch S-02 (low-level)", read("docs/agent-work/_templates/log.md"))
+        for rel in (".github/agents/reviewer.agent.md", ".github/agents/implementer.agent.md"):
+            for tag in tk.LAYER_TAGS:
+                self.assertIn("`%s`" % tag, read(rel), rel)
+        self.assertIn("view --functional", view.__doc__)
 
 
 class InstallTest(unittest.TestCase):

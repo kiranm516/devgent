@@ -172,11 +172,48 @@ def decisions(text):
 
 
 # --------------------------------------------------------------------------
+# Layers: a plan reads at three levels of abstraction, each for its own reader
+# --------------------------------------------------------------------------
+
+# (tag, `##` heading, the `###` sections the layer must carry)
+LAYERS = (
+    ("functional", "Functional Scenarios", ("problem and outcome", "requirements", "scenarios")),
+    ("high-level", "High-Level Design", ("proposed flow",)),
+    ("low-level", "Low-Level Design", ("change map", "test matrix", "slices")),
+)
+LAYER_TAGS = tuple(tag for tag, _, _ in LAYERS)
+LAYER_CHOICES = ", ".join(LAYER_TAGS[:-1]) + " or " + LAYER_TAGS[-1]
+
+_SOURCE = "java|kt|kts|groovy|scala|py|js|jsx|ts|tsx|go|rb|cs|sql|xml|yml|yaml|json|properties|gradle|sh"
+
+
+def _file_ref(extensions):
+    return re.compile(r"(?<![\w/.-])(?:(?:[\w.-]+/)*[\w-]+\.(?:%s)\b(?::\d+)?|src/[\w/*.-]+)" % extensions)
+
+
+# A source file or a `path:line` reference: what the functional layer must not carry.
+FILE_REF = _file_ref(_SOURCE)
+# The same plus documents: everything a plan cites as evidence or lists to change.
+CITED_REF = _file_ref(_SOURCE + "|md")
+
+
+def layer_tag(text):
+    """The layer a decision, question or objection is tagged with, or None."""
+    tag = re.sub(r"[\s_]+", "-", (text or "").strip().strip("*_`").strip().lower())
+    return tag if tag in LAYER_TAGS else None
+
+
+# --------------------------------------------------------------------------
 # Artifacts
 # --------------------------------------------------------------------------
 
 
 class Plan:
+    """plan.md. `sections` maps a lower-cased heading to its body whichever layout the plan
+    uses: the three layers (`## Functional Scenarios`, `## High-Level Design`,
+    `## Low-Level Design`, their parts one heading level down) or the flat layout of plans
+    written before the layers, which stay valid because an approved plan is frozen."""
+
     def __init__(self, text):
         self.meta = {}
         body = text
@@ -189,14 +226,27 @@ class Plan:
                     self.meta[key.strip()] = value.strip().strip("\"'")
         self.body = strip_comments(body)
         self.sections = sections(self.body)
+        self.layers = {tag: self.sections[heading.lower()] for tag, heading, _ in LAYERS
+                       if heading.lower() in self.sections}
+        self.layered = bool(self.layers)
+        for layer in self.layers.values():
+            for name, part in sections(layer, level=3).items():
+                self.sections.setdefault(name, part)
+        if "scenarios and api contract" in self.sections:
+            self.sections.setdefault("scenarios", self.sections["scenarios and api contract"])
+        if not self.layered and "design" in self.sections:
+            self.sections.setdefault("change map", sections(self.sections["design"], level=3).get("change map", ""))
         self.tier = self.meta.get("tier")
         self.version = self.meta.get("plan_version")
-        self.slices = self._slices()
+        # slice heading -> body: one level below `Slices`, wherever the layout puts that
+        self.slice_blocks = sections(self.sections.get("slices", ""), level=4 if self.layered else 3)
+        self.slices, self.slice_covers = self._slices()
         self.decisions = decisions(self.sections.get("decision list", ""))
 
     def _slices(self):
-        out = {}
-        for title, body in sections(self.sections.get("slices", ""), level=3).items():
+        """({S-nn: allowed paths}, {S-nn: the R-nn and SC-nn ids its block names})."""
+        out, covers = {}, {}
+        for title, body in self.slice_blocks.items():
             m = re.match(r"(s-\d+)\b", title)
             if not m:
                 continue
@@ -212,7 +262,8 @@ class Plan:
                 if indent is not None:
                     paths += re.findall(r"`([^`]+)`", line)
             out[m.group(1).upper()] = paths
-        return out
+            covers[m.group(1).upper()] = set(re.findall(r"(?:R|SC)-\d+", body))
+        return out, covers
 
 
 class Log:
@@ -436,7 +487,7 @@ def plan_approval(root, ticket, fetch=approving_reviews, cache_ttl=600):
 # Structure checks ("ready for approval")
 # --------------------------------------------------------------------------
 
-CORE_SECTIONS = (
+FLAT_SECTIONS = (  # the layout of plans written before the layers
     "problem and outcome", "requirements", "scenarios and api contract",
     "design", "test matrix", "slices", "decision list",
 )
@@ -456,24 +507,51 @@ def check_front_matter(plan, ticket_id):
     return errors
 
 
+def _missing_sections(plan):
+    sec, errors = plan.sections, []
+    if not plan.layered:
+        return ["plan.md is missing a non-empty `## %s` section" % name.capitalize()
+                for name in FLAT_SECTIONS if not sec.get(name)]
+    for tag, heading, parts in LAYERS:
+        if not plan.layers.get(tag):
+            errors.append("plan.md is missing a non-empty `## %s` layer" % heading)
+            continue
+        own = sections(plan.layers[tag], level=3)
+        errors += ["%s: `### %s` is missing or empty" % (heading, name.capitalize())
+                   for name in parts if not own.get(name)]
+    if plan.tier == "T2" and plan.layers.get("high-level") and not sec.get("current flow"):
+        errors.append("High-Level Design: a T2 plan needs a non-empty `### Current flow`")
+    if not sec.get("decision list"):
+        errors.append("plan.md is missing a non-empty `## Decision list` section")
+    return errors
+
+
 def check_plan_structure(plan):
-    errors = []
     sec = plan.sections
     if plan.tier == "T0":
         return ["task note is missing a `## %s` section" % s.capitalize()
                 for s in TASK_NOTE_SECTIONS if not sec.get(s)]
 
-    for name in CORE_SECTIONS:
-        if not sec.get(name):
-            errors.append("plan.md is missing a non-empty `## %s` section" % name.capitalize())
+    errors = _missing_sections(plan)
     if errors:
         return errors
+
+    if plan.layered:
+        leaks = []
+        for ref in FILE_REF.findall(plan.layers["functional"]):
+            if ref not in leaks:
+                leaks.append(ref)
+        if leaks:
+            errors.append(
+                "Functional Scenarios: names implementation files (%s%s); describe observable behaviour "
+                "here and keep files and classes in the design layers"
+                % (", ".join("`%s`" % r for r in leaks[:3]), ", ..." if len(leaks) > 3 else ""))
 
     reqs = sorted(set(re.findall(r"^\s*[-*]\s+\**(R-\d+)\b", sec["requirements"], flags=re.M)))
     if not reqs:
         errors.append("Requirements: no numbered criteria (`- R-01: ...`)")
     scenarios = {}
-    for row in table_rows(sec["scenarios and api contract"]):
+    for row in table_rows(sec["scenarios"]):
         m = re.search(r"SC-\d+", row.get("id", ""))
         if m:
             scenarios[m.group(0)] = set(re.findall(r"R-\d+", " ".join(row.values())))
@@ -493,34 +571,48 @@ def check_plan_structure(plan):
         elif not covering & tested:
             errors.append("Requirement %s maps to no test" % req)
 
-    change_map = sections(sec["design"], level=3).get("change map", "")
+    change_map = sec.get("change map", "")
     if not table_rows(change_map) and not re.search(r"^\s*[-*]\s+\S", change_map, flags=re.M):
-        errors.append("Design: `### Change map` is missing or empty")
+        errors.append("%s: `### Change map` is missing or empty" % ("Low-Level Design" if plan.layered else "Design"))
 
     if not plan.slices:
-        errors.append("Slices: no slice defined (`### S-01: goal`)")
+        errors.append("Slices: no slice defined (`%s S-01: goal`)" % ("####" if plan.layered else "###"))
     for slice_id, paths in sorted(plan.slices.items()):
         if not paths:
             errors.append("Slice %s lists no allowed paths (`- Paths: `...``)" % slice_id)
+    if plan.layered and plan.slices:
+        # a scenario reaches a slice by its own id or through a requirement it covers
+        for sc, covered in sorted(scenarios.items()):
+            if not any(sc in ids or covered & ids for ids in plan.slice_covers.values()):
+                errors.append("Scenario %s reaches no slice: name it, or a requirement it covers, "
+                              "in a slice's `- Covers:`" % sc)
 
     if not plan.decisions and re.search(r"^\s*\|.*\bD-\d+", sec["decision list"], flags=re.M):
         errors.append("Decision list: write each decision as a block (`### D-01: question`), not a table row")
     for d in plan.decisions:
         if len(d["options"]) < 2:
             errors.append("Decision %s needs at least two options (`- A: ...`, `- B: ...`)" % d["id"])
+        if plan.layered and not layer_tag(d.get("layer")):
+            errors.append("Decision %s needs its layer (`- Layer: %s`)" % (d["id"], LAYER_CHOICES))
         if _blank(d.get("recommendation", "")):
             errors.append("Decision %s has no recommendation and rationale" % d["id"])
         if _blank(d.get("answer", "")):
             errors.append("Decision %s has no approver's answer" % d["id"])
 
     for row in table_rows(sec.get("open questions", "")):
+        if _blank(row.get("id", "")) and _blank(row.get("question", "")):
+            continue
+        if plan.layered and not layer_tag(row.get("layer")):
+            errors.append("Open question %s needs its layer in a `Layer` column (%s)"
+                          % (row.get("id") or "?", LAYER_CHOICES))
         blocking = row.get("blocking", "").strip().lower().startswith("y")
         status = row.get("status", "").strip().lower()
         if blocking and status not in ("answered", "closed", "risk-accepted"):
             errors.append("Open question %s is blocking and unresolved" % (row.get("id") or "?"))
 
     if plan.tier == "T2" and not sec.get("alternatives"):
-        errors.append("T2 plan needs a non-empty `## Alternatives` section")
+        errors.append("T2 plan needs a non-empty `%s Alternatives` section%s"
+                      % (("###", " in the High-Level Design") if plan.layered else ("##", "")))
     return errors
 
 
@@ -541,6 +633,8 @@ def check_review_structure(text, settings):
         oid = re.search(r"O-\d+", row["id"]).group(0)
         disposition = row.get("disposition", "").strip().strip("*_`").lower()
         note = row.get("reason or owner", "")
+        if "layer" in row and not layer_tag(row["layer"]):
+            errors.append("Objection %s needs its layer: %s" % (oid, LAYER_CHOICES))
         if disposition not in DISPOSITIONS:
             errors.append("Objection %s needs a disposition: accepted, rejected or deferred" % oid)
         elif disposition == "rejected" and _blank(note):
