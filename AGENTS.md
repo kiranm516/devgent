@@ -13,8 +13,9 @@ stop and report it; never look for a way around it.
    `log.md` (line 1 is the current state), `review.md` (objections and findings).
    These files are the source of truth, not the chat.
 3. No ticket folder? Stop. The driver creates one with
-   `./devgent start <ticket-id> --tier T0|T1|T2`
-   on a branch whose name contains the ticket id.
+   `./devgent start <ticket-id> --tier T0|T1|T2`,
+   which gives the ticket its own git worktree on a branch named after it. Work only inside
+   that worktree; another ticket's worktree is another repository to you.
 
 ## Rules
 

@@ -38,20 +38,52 @@ def _set_state(ticket, state, reason):
     ticket.append_log("state %s -> %s%s" % (old, state, ": " + reason if reason else ""))
 
 
-def start(root, ticket_id, tier):
-    """Create the ticket's branch (unless already on one) and scaffold its folder."""
+def start(root, ticket_id, tier, here=False, path=None):
+    """Create the ticket's worktree and branch (unless already on its branch) and scaffold its folder.
+
+    The default is one git worktree per ticket, so several tickets can be worked on at once:
+    the checkout `start` runs in keeps its branch, and the ticket lives in its own folder next to
+    the main checkout (`worktrees.dir` in the settings, or `--path`, say where). `here` switches
+    this checkout to the new branch instead, as `git switch -c` would.
+    """
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", ticket_id):
         raise FlowError("invalid ticket id %r: use letters, digits, '.', '_' and '-'" % ticket_id)
     settings = config.load_settings(root)
-    if os.path.exists(os.path.join(root, settings.artifact_root, ticket_id)):
-        raise FlowError("%s/%s already exists" % (settings.artifact_root, ticket_id))
+    folder = "%s/%s" % (settings.artifact_root, ticket_id)
+    if os.path.exists(os.path.join(root, folder)):
+        raise FlowError("%s already exists" % folder)
     branch = tk.git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False)
-    if not tk._names(ticket_id, branch):
-        tk.git(root, "switch", "-c", ticket_id)
-        print("switched to new branch %s" % ticket_id)
-    ci.new_ticket(root, ticket_id, tier)
-    print("next: have the scout and architect fill %s/%s/plan.md, then run `./devgent status`"
-          % (config.load_settings(root).artifact_root, ticket_id))
+    if tk._names(ticket_id, branch) or here:
+        if not tk._names(ticket_id, branch):
+            tk.git(root, "switch", "-c", ticket_id)
+            print("switched to new branch %s" % ticket_id)
+        ci.new_ticket(root, ticket_id, tier)
+        print("next: have the scout and architect fill %s/plan.md, then run `./devgent status`" % folder)
+        return
+
+    for other, other_branch in tk.worktrees(root):
+        if other_branch and tk._names(ticket_id, other_branch):
+            raise FlowError("%s is already checked out at %s (branch %s): `cd` there and run `./devgent status`"
+                            % (ticket_id, other, other_branch))
+    dest = os.path.abspath(path) if path else tk.worktree_path(root, settings, ticket_id)
+    if os.path.exists(dest):
+        raise FlowError("%s already exists; remove it or pass --path" % dest)
+    if tk.git(root, "rev-parse", "--verify", "--quiet", "refs/heads/" + ticket_id, check=False):
+        origin = "existing branch %s" % ticket_id
+        tk.git(root, "worktree", "add", dest, ticket_id)
+    elif tk.git(root, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + ticket_id, check=False):
+        origin = "origin/%s" % ticket_id
+        tk.git(root, "worktree", "add", "--track", "-b", ticket_id, dest, "origin/" + ticket_id)
+    else:
+        origin = "new branch %s from %s" % (ticket_id, branch if branch != "HEAD" else "detached HEAD")
+        tk.git(root, "worktree", "add", "-b", ticket_id, dest, "HEAD")
+    print("created worktree %s (%s)" % (dest, origin))
+    if os.path.exists(os.path.join(dest, folder)):
+        print("%s is already there; nothing scaffolded" % folder)
+    else:
+        ci.new_ticket(dest, ticket_id, tier)
+    print("next: `cd %s`, have the scout and architect fill %s/plan.md, then run `./devgent status`"
+          % (dest, folder))
 
 
 def slice_step(root, action, slice_id):
@@ -161,11 +193,15 @@ def next_step(root, settings, ticket, plan, log, approval):
     if plan is None:
         return "plan.md is missing; restore it or start again with `./devgent start`"
     if log.state in ("BLOCKED", "ABANDONED", "DONE", "APPROVED"):
-        return {"BLOCKED": "blocked: resolve the question in log.md, then `./devgent state <STATE>`",
+        text = {"BLOCKED": "blocked: resolve the question in log.md, then `./devgent state <STATE>`",
                 "ABANDONED": "nothing: the ticket was abandoned",
                 "APPROVED": "merge through the normal process, then write the retrospective in log.md "
                             "and run `./devgent state DONE`",
                 "DONE": "nothing: the ticket is done"}[log.state]
+        if log.state in ("DONE", "ABANDONED") and tk.is_linked_worktree(root):
+            text += ("; its worktree can go: `git -C %s worktree remove %s`"
+                     % (tk.main_worktree(root), root))
+        return text
     errors = tk.check_plan_structure(plan)
     if plan.tier == "T0":
         if errors:
@@ -200,7 +236,12 @@ def status(root):
     ticket = tk.resolve_ticket(root, settings)
     if ticket is None:
         print("no active ticket on this branch")
-        print("\nnext: `./devgent start <ticket-id> --tier T0|T1|T2` "
+        others = tk.ticket_worktrees(root, settings)
+        if others:
+            print("\ntickets in other worktrees of this repository:")
+            for ticket_id, path, state in others:
+                print("  %-14s %-14s %s" % (ticket_id, state or "unknown", path))
+        print("\nnext: `./devgent start <ticket-id> --tier T0|T1|T2` creates the ticket's worktree "
               "(`./devgent tier` shows the floor for work already on the branch)")
         return 1
     plan, log = ticket.plan(), ticket.log()

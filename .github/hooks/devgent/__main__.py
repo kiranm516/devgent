@@ -2,7 +2,7 @@
 
 Every day
   status                         where the ticket stands and what to do next
-  start <ticket-id> --tier T1    create the ticket's branch and folder
+  start <ticket-id> --tier T1    create the ticket's worktree, branch and folder (--here: this checkout)
   tier                           tier floor the path rules set for this branch
   slice start|review|accept S-01 move a slice forward (one at a time)
   state <STATE> [reason]         set the ticket's state
@@ -34,6 +34,10 @@ def _parser():
     p = sub.add_parser("start", aliases=["new"])
     p.add_argument("ticket")
     p.add_argument("--tier", choices=config.TIERS, required=True)
+    p.add_argument("--here", action="store_true",
+                   help="switch this checkout to the new branch instead of creating a worktree")
+    p.add_argument("--path", help="folder for the ticket's worktree (default: next to the main checkout, "
+                                  "see `worktrees.dir` in .github/devgent.yml)")
     for name in ("check", "ci", "tier"):
         p = sub.add_parser(name)
         p.add_argument("--base", help="ref to compare with (default: the default branch)")
@@ -141,7 +145,7 @@ def main(argv=None):
         ci.publish(report)
         return 1 if report.failed else 0
     if args.cmd in ("start", "new"):
-        flow.start(root, args.ticket, args.tier)
+        flow.start(root, args.ticket, args.tier, here=args.here, path=args.path)
     elif args.cmd == "slice":
         flow.slice_step(root, args.action, args.slice)
     elif args.cmd == "state":

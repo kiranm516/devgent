@@ -8,6 +8,13 @@ version: 1
 # Each ticket keeps its artifacts in <artifact_root>/<ticket-id>/.
 artifact_root: docs/agent-work
 
+# `./devgent start` gives each ticket its own git worktree, so several tickets can
+# be worked on at once. `dir` is where they go, relative to the main checkout; the
+# ticket id names the folder inside it. Unset, it is `../<repo-folder>.worktrees`.
+# A folder inside the repository (e.g. `.worktrees`) also needs a .gitignore entry.
+worktrees:
+  dir:
+
 slice:
   # Net changed lines (added + deleted) of production code per slice.
   # Test code is reviewed but does not count.

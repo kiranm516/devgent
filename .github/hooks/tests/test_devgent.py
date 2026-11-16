@@ -2,6 +2,8 @@
 
     PYTHONPATH=.github/hooks python3 -m unittest discover -s .github/hooks/tests -v
 """
+import contextlib
+import io
 import json
 import os
 import re
@@ -94,6 +96,18 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(settings.artifact_root, "docs/agent-work")
         self.assertEqual(settings.production_hosts, [])
         self.assertTrue(any(r.get("new_files_only") for r in settings.tier_rules))
+
+    def test_worktrees_setting(self):
+        with open(os.path.join(REPO, config.SETTINGS_PATH)) as fh:
+            good = fh.read()
+        self.assertIn("worktrees:\n  dir:\n", good)
+        self.assertIsNone(config.load_settings(REPO, good).worktrees_dir)
+        self.assertIsNone(config.load_settings(REPO, good.replace("worktrees:\n  dir:\n", "")).worktrees_dir)
+        self.assertEqual(config.load_settings(REPO, good.replace("  dir:\n", "  dir: ../tickets\n")).worktrees_dir,
+                         "../tickets")
+        with self.assertRaises(config.ConfigError) as ctx:
+            config.load_settings(REPO, good.replace("worktrees:\n  dir:\n", "worktrees: 3\n"))
+        self.assertIn("worktrees", str(ctx.exception))
 
     def test_yaml_subset(self):
         data = config.parse_yaml(
@@ -305,6 +319,9 @@ class RepoTest(unittest.TestCase):
         for key in ("DEVGENT_TICKET", "DEVGENT_OVERRIDE", "DEVGENT_ROLE"):
             os.environ.pop(key, None)
         self.addCleanup(os.environ.pop, "DEVGENT_OVERRIDE", None)
+        # `start` puts ticket worktrees next to the checkout by default
+        self.worktrees = self.root + ".worktrees"
+        self.addCleanup(shutil.rmtree, self.worktrees, True)
 
     def git(self, *args):
         return subprocess.run(["git", "-C", self.root] + list(args), check=True,
@@ -327,7 +344,7 @@ class RepoTest(unittest.TestCase):
         self.write("docs/agent-work/ABC-1/review.md", review())
         return self.commit("ABC-1 plan")
 
-    def pre(self, tool, args, approved=None, **extra):
+    def pre(self, tool, args, approved=None, cwd=None, **extra):
         """Run the preToolUse hook; returns the deny reason or None."""
         original = tk.approving_reviews
         tk.approving_reviews = lambda root: (approved, None) if approved is not None else (None, "no PR")
@@ -335,7 +352,7 @@ class RepoTest(unittest.TestCase):
             lambda root, t: tk.plan_approval(root, t, fetch=tk.approving_reviews, cache_ttl=0),
             hook.check_write.__defaults__[1])
         try:
-            payload = dict(toolName=tool, toolArgs=json.dumps(args), cwd=self.root, sessionId="s1", **extra)
+            payload = dict(toolName=tool, toolArgs=json.dumps(args), cwd=cwd or self.root, sessionId="s1", **extra)
             decision = hook.pre_tool_use(payload)
         finally:
             tk.approving_reviews = original
@@ -819,13 +836,214 @@ class RepoTest(unittest.TestCase):
         flow.set_state(self.root, "IN_REVIEW", "")
         self.assertIn("review the diff", self.next(approved=True))
 
-    def test_start_creates_branch_and_folder(self):
+    # ---- worktrees: one checkout per ticket ---------------------------------
+
+    def start(self, ticket_id, tier="T1", **kw):
+        """Run `start` from the main checkout on `main`; returns (printed text, worktree path)."""
+        if self.git("rev-parse", "--abbrev-ref", "HEAD") != "main":
+            self.git("checkout", "-q", "main")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            flow.start(self.root, ticket_id, tier, **kw)
+        return out.getvalue(), os.path.join(self.worktrees, ticket_id)
+
+    def branch_of(self, path):
+        return subprocess.run(["git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD"], check=True,
+                              stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
+
+    def test_start_creates_worktree_for_ticket(self):
+        text, wt = self.start("XYZ-7", "T0")
+        self.assertIn("created worktree %s (new branch XYZ-7 from main)" % wt, text)
+        self.assertIn("`cd %s`" % wt, text)
+        self.assertEqual(self.branch_of(wt), "XYZ-7")
+        ticket = tk.resolve_ticket(wt, self.settings)
+        self.assertEqual((ticket.id, ticket.plan().tier), ("XYZ-7", "T0"))
+        self.assertIsNone(ticket.read("review.md"))
+        # the checkout `start` ran in is untouched
+        self.assertEqual(self.branch_of(self.root), "main")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertIsNone(tk.resolve_ticket(self.root, self.settings))
+        self.assertEqual([b for _, b in tk.worktrees(self.root)], ["main", "XYZ-7"])
+        self.assertTrue(tk.is_linked_worktree(wt))
+        self.assertFalse(tk.is_linked_worktree(self.root))
+        self.assertEqual(os.path.realpath(tk.main_worktree(wt)), self.root)
+
+    def test_two_tickets_get_two_worktrees(self):
+        _, wt7 = self.start("XYZ-7")
+        _, wt8 = self.start("XYZ-8", "T0")
+        self.assertEqual(tk.resolve_ticket(wt7, self.settings).id, "XYZ-7")
+        self.assertEqual(tk.resolve_ticket(wt8, self.settings).id, "XYZ-8")
+        self.assertEqual(sorted(t for t, _, _ in tk.ticket_worktrees(self.root, self.settings)), ["XYZ-7", "XYZ-8"])
+        self.assertEqual([t for t, _, _ in tk.ticket_worktrees(wt7, self.settings)], ["XYZ-8"])
+
+    def test_worktrees_dir_setting_places_the_worktree(self):
+        tickets = os.path.join(os.path.dirname(self.root), os.path.basename(self.root) + "-tickets")
+        self.addCleanup(shutil.rmtree, tickets, True)
         self.git("checkout", "-q", "main")
-        flow.start(self.root, "XYZ-7", "T0")
-        self.assertEqual(self.git("rev-parse", "--abbrev-ref", "HEAD"), "XYZ-7")
+        self.write(config.SETTINGS_PATH, self.read(config.SETTINGS_PATH).replace(
+            "worktrees:\n  dir:\n", "worktrees:\n  dir: ../%s\n" % os.path.basename(tickets)))
+        self.commit("settings")
+        settings = config.load_settings(self.root)
+        self.assertEqual(settings.worktrees_dir, "../" + os.path.basename(tickets))
+        self.assertEqual(tk.worktree_path(self.root, settings, "XYZ-7"), os.path.join(tickets, "XYZ-7"))
+        text, _ = self.start("XYZ-7", "T0")
+        self.assertTrue(os.path.isfile(os.path.join(tickets, "XYZ-7", "docs/agent-work/XYZ-7/plan.md")))
+        # from inside a linked worktree the path is still relative to the main checkout
+        self.assertEqual(tk.worktree_path(os.path.join(tickets, "XYZ-7"), settings, "XYZ-8"),
+                         os.path.join(tickets, "XYZ-8"))
+
+    def test_start_path_option(self):
+        dest = os.path.join(tempfile.mkdtemp(), "mine", "XYZ-7")
+        self.addCleanup(shutil.rmtree, os.path.dirname(os.path.dirname(dest)), True)
+        text, _ = self.start("XYZ-7", "T0", path=dest)
+        self.assertIn("created worktree %s" % dest, text)
+        self.assertEqual(self.branch_of(dest), "XYZ-7")
+        self.assertFalse(os.path.exists(self.worktrees))
+
+    def test_start_on_ticket_branch_scaffolds_in_place(self):
+        # setUp left us on ABC-1-orders, which names the ticket
+        flow.start(self.root, "ABC-1", "T1")
+        self.assertEqual(self.branch_of(self.root), "ABC-1-orders")
+        self.assertEqual(tk.resolve_ticket(self.root, self.settings).id, "ABC-1")
+        self.assertEqual(len(tk.worktrees(self.root)), 1)
+
+    def test_start_here_switches_in_place(self):
+        self.git("checkout", "-q", "main")
+        flow.start(self.root, "XYZ-7", "T0", here=True)
+        self.assertEqual(self.branch_of(self.root), "XYZ-7")
         ticket = tk.resolve_ticket(self.root, self.settings)
         self.assertEqual((ticket.id, ticket.plan().tier), ("XYZ-7", "T0"))
         self.assertIsNone(ticket.read("review.md"))
+        self.assertEqual(len(tk.worktrees(self.root)), 1)
+
+    def test_start_refuses_second_worktree_for_same_ticket(self):
+        _, wt = self.start("XYZ-7")
+        with self.assertRaises(flow.FlowError) as ctx:
+            flow.start(self.root, "XYZ-7", "T1")
+        self.assertIn("already checked out at %s" % wt, str(ctx.exception))
+        self.assertEqual(len(tk.worktrees(self.root)), 2)
+
+    def test_start_refuses_existing_destination(self):
+        self.git("checkout", "-q", "main")
+        os.makedirs(os.path.join(self.worktrees, "XYZ-7"))
+        with self.assertRaises(flow.FlowError) as ctx:
+            flow.start(self.root, "XYZ-7", "T1")
+        self.assertIn(os.path.join(self.worktrees, "XYZ-7"), str(ctx.exception))
+        self.assertEqual(len(tk.worktrees(self.root)), 1)
+        self.assertEqual(self.git("branch", "--list", "XYZ-7"), "")
+
+    def test_start_refuses_existing_ticket_folder(self):
+        self.ticket()
+        with self.assertRaises(flow.FlowError) as ctx:
+            flow.start(self.root, "ABC-1", "T1")
+        self.assertIn("already exists", str(ctx.exception))
+
+    def test_start_reuses_existing_branch_and_folder(self):
+        self.git("checkout", "-q", "-b", "XYZ-7", "main")
+        self.write("docs/agent-work/XYZ-7/plan.md", plan().replace("ABC-1", "XYZ-7"))
+        self.write("docs/agent-work/XYZ-7/log.md", "state: PLANNING\n")
+        self.commit("XYZ-7 plan")
+        text, wt = self.start("XYZ-7")
+        self.assertIn("(existing branch XYZ-7)", text)
+        self.assertIn("already there; nothing scaffolded", text)
+        self.assertEqual(tk.resolve_ticket(wt, self.settings).log().state, "PLANNING")
+
+    def test_start_tracks_remote_branch(self):
+        remote = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, remote, True)
+        subprocess.run(["git", "init", "-q", "--bare", remote], check=True)
+        self.git("remote", "add", "origin", remote)
+        self.git("branch", "XYZ-7", "main")
+        self.git("push", "-q", "origin", "XYZ-7")
+        self.git("branch", "-D", "XYZ-7")
+        text, wt = self.start("XYZ-7", "T0")
+        self.assertIn("(origin/XYZ-7)", text)
+        self.assertEqual(self.branch_of(wt), "XYZ-7")
+        upstream = subprocess.run(["git", "-C", wt, "rev-parse", "--abbrev-ref", "XYZ-7@{upstream}"], check=True,
+                                  stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
+        self.assertEqual(upstream, "origin/XYZ-7")
+        self.assertTrue(os.path.isfile(os.path.join(wt, "docs/agent-work/XYZ-7/plan.md")))
+
+    def test_approval_cache_is_per_ticket(self):
+        commit1 = self.ticket()
+        self.write("docs/agent-work/ABC-2/plan.md", plan().replace("ABC-1", "ABC-2"))
+        self.write("docs/agent-work/ABC-2/log.md", "state: PLANNING\n")
+        commit2 = self.commit("ABC-2 plan")
+        one, two = tk.Ticket(self.root, self.settings, "ABC-1"), tk.Ticket(self.root, self.settings, "ABC-2")
+        self.assertTrue(tk.plan_approval(self.root, one, fetch=lambda r: ([commit1], None))[0])
+        self.assertTrue(tk.plan_approval(self.root, two, fetch=lambda r: ([commit2], None))[0])
+        state = tk.state_dir(self.root)
+        self.assertEqual(sorted(f for f in os.listdir(state) if f.startswith("approval")),
+                         ["approval-ABC-1.json", "approval-ABC-2.json"])
+        # the second lookup did not evict the first: ABC-1 is still approved without asking GitHub
+        self.assertEqual(tk.plan_approval(self.root, one, fetch=lambda r: (None, "offline"))[1], "approved (cached)")
+
+    def test_state_dir_is_shared_by_worktrees(self):
+        _, wt = self.start("XYZ-7")
+        self.assertEqual(os.path.realpath(tk.state_dir(wt)), os.path.realpath(tk.state_dir(self.root)))
+        self.assertTrue(tk.state_dir(wt).startswith(os.path.join(self.root, ".git")))
+        self.assertEqual(view.run(wt), 0)
+        self.assertTrue(os.path.isfile(os.path.join(tk.state_dir(self.root), "view", "XYZ-7.html")))
+
+    def test_status_lists_ticket_worktrees(self):
+        _, wt7 = self.start("XYZ-7")
+        _, wt8 = self.start("XYZ-8", "T0")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(flow.status(self.root), 1)
+        text = out.getvalue()
+        self.assertIn("no active ticket", text)
+        self.assertIn("tickets in other worktrees", text)
+        self.assertRegex(text, r"XYZ-7\s+TRIAGED\s+%s" % re.escape(wt7))
+        self.assertRegex(text, r"XYZ-8\s+TRIAGED\s+%s" % re.escape(wt8))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(flow.status(wt7), 0)
+        self.assertNotIn("other worktrees", out.getvalue())
+
+    def test_done_in_worktree_suggests_removal(self):
+        _, wt = self.start("XYZ-7")
+        ticket = tk.Ticket(wt, self.settings, "XYZ-7")
+        with open(os.path.join(wt, ticket.rel("log.md")), "w") as fh:
+            fh.write("state: DONE\n")
+        hint = flow.next_step(wt, self.settings, ticket, ticket.plan(), ticket.log(), (True, ""))
+        self.assertIn("git -C %s worktree remove %s" % (self.root, wt), hint)
+        self.ticket(log="state: DONE\n")
+        self.assertNotIn("worktree remove", self.next(approved=True))
+
+    def test_hook_refuses_write_into_another_worktree(self):
+        _, wt7 = self.start("XYZ-7")
+        _, wt8 = self.start("XYZ-8", "T0")
+        # the test repositories live in the system temp folder, where the hook lets scratch
+        # writes through; point it elsewhere so these checkouts count as ordinary folders
+        tempfile.tempdir, saved = os.path.join(self.root, "scratch"), tempfile.tempdir
+        os.makedirs(tempfile.tempdir)
+        self.addCleanup(setattr, tempfile, "tempdir", saved)
+        self.assertIn("[devgent:outside-repo]", self.pre("create", {"path": os.path.join(wt7, self.SRC)}, cwd=wt8))
+        self.assertIn("[devgent:outside-repo]", self.pre("create", {"path": os.path.join(self.root, self.SRC)}, cwd=wt8))
+        self.assertIsNone(self.pre("create", {"path": "docs/agent-work/XYZ-8/plan.md"}, cwd=wt8))
+
+    def test_hook_judges_write_by_worktree_root(self):
+        _, wt = self.start("XYZ-7")
+        # inside the worktree the T1 ticket applies: a source write waits for plan approval
+        self.assertIn("[devgent:plan-approval]", self.pre("create", {"path": self.SRC}, cwd=wt))
+        # the main checkout on `main` has no ticket at all
+        self.assertIn("[devgent:ticket]", self.pre("create", {"path": self.SRC}, cwd=self.root))
+        # and the worktree's own .git (a file) is still off limits
+        self.assertIn("[devgent:dangerous-action]", self.pre("create", {"path": ".git"}, cwd=wt))
+
+
+class DocsTest(unittest.TestCase):
+    def test_docs_mention_worktrees_and_start_options(self):
+        def read(rel):
+            with open(os.path.join(REPO, rel), encoding="utf-8") as fh:
+                return fh.read()
+        readme = read("README.md")
+        for text in ("--here", "--path", "worktrees.dir", "git worktree remove"):
+            self.assertIn(text, readme)
+        self.assertIn("worktree", read("AGENTS.md"))
+        self.assertIn("worktrees/ORD-142", read("docs/examples.md"))
+        self.assertIn("worktrees:", read(config.SETTINGS_PATH))
 
 
 class InstallTest(unittest.TestCase):

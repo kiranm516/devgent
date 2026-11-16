@@ -192,6 +192,11 @@ class Settings:
             self.tier_rules = data["tier_rules"]
             if not isinstance(self.tier_rules, list):
                 raise TypeError("tier_rules")
+            worktrees = data.get("worktrees") or {}
+            if not isinstance(worktrees, dict):
+                raise TypeError("worktrees")
+            # where `devgent start` puts a ticket's checkout; None means next to the main checkout
+            self.worktrees_dir = str(worktrees.get("dir") or "").strip() or None
         except (KeyError, TypeError, ValueError) as exc:
             raise ConfigError("invalid %s: %r" % (SETTINGS_PATH, exc))
         _strings("slice.production_paths", self.production_paths)

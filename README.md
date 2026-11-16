@@ -96,7 +96,8 @@ person who answers the plan's decisions and approves on GitHub.
 A ticket in commands, for a T1 feature:
 
 ```bash
-./devgent start ABC-123 --tier T1        # driver: branch and ticket folder
+./devgent start ABC-123 --tier T1        # driver: worktree, branch and ticket folder
+cd ../service-repo.worktrees/ABC-123     # driver: everything else runs inside the ticket's worktree
 ./devgent check                          # driver: what the plan still lacks
 gh pr create --draft --fill              # driver: put the plan in front of the approver
 ./devgent view --open                    # approver: decisions, trace and what needs an answer
@@ -110,7 +111,7 @@ gh pr ready                              # driver: the approver reviews the diff
 
 | Step | Who | Command or action |
 | --- | --- | --- |
-| 1. Triage | scout, driver | Ask the `scout` for a tier. Then `./devgent start ABC-123 --tier T1` creates the branch and the ticket folder. |
+| 1. Triage | scout, driver | Ask the `scout` for a tier. Then `./devgent start ABC-123 --tier T1` creates the ticket's worktree, its branch and the ticket folder; `cd` into the worktree for the rest. |
 | 2. Plan | architect, reviewer | The `architect` fills `plan.md`; the `reviewer` records up to five objections. `./devgent check` lists what is still missing. |
 | 3. Approve the plan | approver | Commit and open a draft PR. The approver answers every decision (`./devgent view` shows them with the options and the recommendation; `./devgent answer D-01 A` writes one), gives every objection a disposition, then submits a GitHub approving review. The approver is not the driver. |
 | 4. Implement | implementer, driver | Per slice: `./devgent slice start S-01`, the `implementer` builds and commits it with a `Slice: S-01` trailer, `./devgent slice review S-01`, you look at it, `./devgent slice accept S-01`. |
@@ -119,7 +120,7 @@ gh pr ready                              # driver: the approver reviews the diff
 | Command | What it does |
 | --- | --- |
 | `./devgent status` | Ticket, state, tier, plan approval, slice status, and the next step |
-| `./devgent start <id> --tier T0\|T1\|T2` | Creates the branch (named after the ticket) and the ticket folder from the templates |
+| `./devgent start <id> --tier T0\|T1\|T2` | Creates a git worktree for the ticket next to the main checkout, on a branch named after the ticket, with the ticket folder from the templates. `--path <dir>` puts the worktree elsewhere; `--here` switches the current checkout to the new branch instead |
 | `./devgent tier` | Tier floor the path rules set for the files changed on this branch |
 | `./devgent slice start\|review\|accept S-01` | Moves a slice forward. Refuses a second slice while one is in progress or awaiting review. |
 | `./devgent state <STATE> [reason]` | Sets the state on line 1 of `log.md` and logs the change. `BLOCKED` and `ABANDONED` need a reason. |
@@ -128,6 +129,7 @@ gh pr ready                              # driver: the approver reviews the diff
 | `./devgent answer D-01 A [note]` | Writes the approver's answer on that decision's `- Answer:` line in `plan.md` |
 | `./devgent override <gate> <reason>` | Records a human override in `log.md` |
 
+- **One worktree per ticket.** `start` leaves the checkout it runs in alone and creates `../<repo-folder>.worktrees/<ticket-id>/` (`worktrees.dir` in `.github/devgent.yml` moves them), so a developer works several tickets at once, each in its own folder with its own agent session. The main checkout stays on the default branch. Run `start` from inside a ticket's worktree and the new branch stacks on that ticket. If the branch `<ticket-id>` already exists locally or on `origin`, the worktree checks it out instead, which is how a colleague joins a ticket. `./devgent status` in the main checkout lists the tickets open in worktrees. The approval cache, audit log and `view` pages live in the main checkout's `.git/devgent/`, shared by all worktrees. After `DONE`, `git worktree remove <path>` from the main checkout cleans up.
 - The branch name must contain the ticket id (or set `DEVGENT_TICKET`).
 - Any change to `plan.md` cancels its approval, answers included: commit the answers first, then approve.
 - A T0 ticket carries only a short task note in `plan.md`. The driver approves it and normal PR review covers the diff.
@@ -179,3 +181,12 @@ PYTHONPATH=.github/hooks python3 -m unittest discover -s .github/hooks/tests
 ```
 
 The tests stay in this repository; they are not installed into service repositories.
+
+**To discuss: does the kit repository follow its own workflow?** This repository carries the kit's
+`.github/devgent.yml`, hook and `gates` workflow, so by its own rules every change to the hooks is a
+T2 ticket with an approved plan before code. The worktree support was built directly on a branch
+instead, by the maintainer's decision, because the kit has no service code and the people changing
+it are the people who would approve it. Decide one of: (a) the kit repository is exempt and this
+section says so; (b) it follows the workflow with the maintainer as both driver and approver, and
+`CODEOWNERS` names them; (c) it follows the workflow in full with a second approver. Until then, a
+PR here without a ticket folder fails the `gates` check and is merged by a human who knows why.

@@ -34,7 +34,8 @@ You hand work to an agent by naming it in your prompt, for example
 tier path rules.
 
 ```bash
-./devgent start ORD-150 --tier T0      # branch ORD-150 and a ticket folder with a task note
+./devgent start ORD-150 --tier T0      # worktree ../orders.worktrees/ORD-150 on branch ORD-150, with a task note
+cd ../orders.worktrees/ORD-150
 ```
 
 Fill the three sections of `docs/agent-work/ORD-150/plan.md`, or ask the architect to:
@@ -65,7 +66,8 @@ higher floor and the hook refuses the write. Start again at that tier; only a hu
 
 ```bash
 # In Copilot CLI: "Use the scout agent to triage ORD-142: <ticket text>"  ->  proposes T1
-./devgent start ORD-142 --tier T1
+./devgent start ORD-142 --tier T1      # its own worktree: ORD-150 above keeps running next door
+cd ../orders.worktrees/ORD-142
 # "Use the architect agent to write the plan for ORD-142"
 # "Use the reviewer agent to challenge the plan"
 ./devgent check                        # lists what the plan still lacks
@@ -323,12 +325,16 @@ status to `answered` with its source, or the approver writes `risk-accepted`, an
 
 ## 8. Picking a ticket up again
 
-**Use it when** you, a colleague or a new agent session comes back to a branch.
+**Use it when** you, a colleague or a new agent session comes back to a ticket.
 
 ```bash
-git switch ORD-142
+cd ../orders.worktrees/ORD-142          # your own worktree; or, on another machine:
+./devgent start ORD-142 --tier T1       # checks out the existing origin/ORD-142 into a new worktree
 ./devgent status
 ```
+
+`./devgent status` in the main checkout lists every ticket open in a worktree, with its state and
+path, when you forget where one lives.
 
 ```
 ticket        ORD-142

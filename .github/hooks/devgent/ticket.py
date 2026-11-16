@@ -34,11 +34,65 @@ def repo_root(cwd):
 
 
 def state_dir(root):
-    """Local, never-committed directory for the approval cache and audit log."""
+    """Local, never-committed directory for the approval cache and audit log.
+    It lives in the main checkout's .git, so every worktree of the repository shares it."""
     common = git(root, "rev-parse", "--git-common-dir")
     path = os.path.join(common if os.path.isabs(common) else os.path.join(root, common), "devgent")
     os.makedirs(path, exist_ok=True)
     return path
+
+
+# --------------------------------------------------------------------------
+# Worktrees: one checkout per ticket, so a developer can work several tickets at once
+# --------------------------------------------------------------------------
+
+
+def worktrees(root):
+    """[(path, branch or None)] for every checkout of this repository, the main one first."""
+    out, path, branch = [], None, None
+    for line in git(root, "worktree", "list", "--porcelain", check=False).splitlines() + [""]:
+        if line.startswith("worktree "):
+            path, branch = line[len("worktree "):], None
+        elif line.startswith("branch "):
+            branch = line[len("branch "):]
+            branch = branch[len("refs/heads/"):] if branch.startswith("refs/heads/") else branch
+        elif not line and path:
+            out.append((path, branch))
+            path = None
+    return out
+
+
+def main_worktree(root):
+    """Root of the main checkout, the one that owns .git; `root` itself unless it is a linked worktree."""
+    listed = worktrees(root)
+    return listed[0][0] if listed else root
+
+
+def is_linked_worktree(root):
+    return os.path.realpath(main_worktree(root)) != os.path.realpath(root)
+
+
+def worktree_path(root, settings, ticket_id):
+    """Where `start` puts the ticket's checkout: `worktrees.dir` from the settings (relative to
+    the main checkout), else a `<repo>.worktrees` folder next to it; the ticket id names the folder."""
+    main = main_worktree(root)
+    base = settings.worktrees_dir or os.path.join("..", os.path.basename(main) + ".worktrees")
+    return os.path.normpath(os.path.join(main, base, ticket_id))
+
+
+def ticket_worktrees(root, settings):
+    """[(ticket_id, path, state)] for the tickets checked out in this repository's other worktrees."""
+    out = []
+    for path, branch in worktrees(root):
+        if not branch or os.path.realpath(path) == os.path.realpath(root):
+            continue
+        try:
+            other = resolve_ticket(path, settings, branch=branch)
+        except GitError:
+            other = None
+        if other is not None:
+            out.append((other.id, path, other.log().state))
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -277,13 +331,16 @@ def _names(ticket_id, branch):
     return re.search(r"(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(ticket_id), branch, flags=re.I) is not None
 
 
-def resolve_ticket(root, settings):
-    """Active ticket for a local session: env, then branch name, then branch diff."""
+def resolve_ticket(root, settings, branch=None):
+    """Active ticket for a local session: env, then branch name, then branch diff.
+    `branch` names the checked-out branch when the caller knows it already (another worktree);
+    the DEVGENT_TICKET shortcut then does not apply, since it describes this session only."""
     tickets = list_tickets(root, settings)
     env = os.environ.get("DEVGENT_TICKET")
-    if env:
+    if env and branch is None:
         return Ticket(root, settings, env) if env in tickets else None
-    branch = git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False)
+    if branch is None:
+        branch = git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False)
     named = [t for t in tickets if _names(t, branch)
              and Ticket(root, settings, t).log().state not in ("DONE", "ABANDONED")]
     if named:
@@ -346,7 +403,9 @@ def plan_approval(root, ticket, fetch=approving_reviews, cache_ttl=600):
     if not blob:
         return False, "%s is not committed" % plan_rel
 
-    cache_file = os.path.join(state_dir(root), "approval.json")
+    # one cache file per ticket: worktrees share the state directory, and a lookup for one
+    # ticket must not evict another's entry
+    cache_file = os.path.join(state_dir(root), "approval-%s.json" % ticket.id)
     try:
         with open(cache_file) as fh:
             cache = json.load(fh)
