@@ -4,12 +4,13 @@
 
 ## Plan objections
 
-<!-- Before plan approval. At most five, ranked. Disposition is one of:
+<!-- Before plan approval. At most five, ranked. Layer is the level of the plan the
+objection is about: functional, high-level or low-level. Disposition is one of:
 accepted, rejected (reason required), deferred (named person required).
 Write "No objections." under the table if there are none. -->
 
-| ID | Objection | Disposition | Reason or owner |
-| --- | --- | --- | --- |
+| ID | Layer | Objection | Disposition | Reason or owner |
+| --- | --- | --- | --- | --- |
 
 ## Diff findings
 

@@ -8,6 +8,7 @@ Every day
   state <STATE> [reason]         set the ticket's state
   check                          run the pull request gates locally
   view [--open]                  one generated page: what needs you, decisions, trace, slices
+  view --functional [--open]     the functional scenarios alone, to show a BA, PO or QE
   answer D-01 A [note]           write the approver's answer to a decision into plan.md
   override <gate> <reason>       record a human override of one gate
 
@@ -53,6 +54,8 @@ def _parser():
     p.add_argument("reason", nargs="*")
     p = sub.add_parser("view")
     p.add_argument("--open", action="store_true", help="open the page in the default browser")
+    p.add_argument("--functional", action="store_true",
+                   help="write the functional layer alone: requirements and scenarios, no files or slices")
     p = sub.add_parser("answer")
     p.add_argument("decision")
     p.add_argument("answer", nargs="+")
@@ -153,7 +156,7 @@ def main(argv=None):
     elif args.cmd == "answer":
         flow.answer(root, args.decision, " ".join(args.answer))
     elif args.cmd == "view":
-        return view.run(root, args.open)
+        return view.run(root, args.open, args.functional)
     elif args.cmd == "override":
         flow.override(root, args.gate, " ".join(args.reason))
     else:

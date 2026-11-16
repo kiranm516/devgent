@@ -87,7 +87,7 @@ Your own agents, skills and workflows next to the kit's are left alone. The kit'
 
 Everything goes through `./devgent` (`devgent` on Windows). When in doubt, run `./devgent status`:
 it shows where the ticket stands and the next command to run. [docs/examples.md](docs/examples.md)
-walks through nine use cases with a complete sample plan.
+walks through ten use cases with a complete sample plan.
 
 Two humans and four agents take part. The **driver** runs Copilot CLI and hands work to the agents
 by naming one in the prompt ("Use the scout agent to triage ABC-123"). The **approver** is a second
@@ -105,6 +105,7 @@ A ticket in commands, for a T1 feature:
 ./devgent start ABC-123 --tier T1        # driver: worktree, branch and ticket folder
 cd ../service-repo.worktrees/ABC-123     # driver: everything else runs inside the ticket's worktree
 ./devgent check                          # driver: what the plan still lacks
+./devgent view --functional --open       # driver: the scenarios alone, to show a BA, PO or QE
 gh pr create --draft --fill              # driver: put the plan in front of the approver
 ./devgent view --open                    # approver: decisions, trace and what needs an answer
 ./devgent answer D-01 A                  # approver: then commit, push, approve the PR
@@ -118,7 +119,7 @@ gh pr ready                              # driver: the approver reviews the diff
 | Step | Who | Command or action |
 | --- | --- | --- |
 | 1. Triage | scout, driver | Ask the `scout` for a tier. Then `./devgent start ABC-123 --tier T1` creates the ticket's worktree, its branch and the ticket folder; `cd` into the worktree for the rest. |
-| 2. Plan | architect, reviewer | The `architect` fills `plan.md`; the `reviewer` records up to five objections. `./devgent check` lists what is still missing. |
+| 2. Plan | architect, reviewer | The `architect` fills `plan.md` in [three layers](#a-plan-in-three-layers); the `reviewer` records up to five objections. `./devgent check` lists what is still missing. The driver may show the functional layer to a BA, PO or QE with `./devgent view --functional`. |
 | 3. Approve the plan | approver | Commit and open a draft PR. The approver answers every decision (`./devgent view` shows them with the options and the recommendation; `./devgent answer D-01 A` writes one), gives every objection a disposition, then submits a GitHub approving review. The approver is not the driver. |
 | 4. Implement | implementer, driver | Per slice: `./devgent slice start S-01`, the `implementer` builds and commits it with a `Slice: S-01` trailer, `./devgent slice review S-01`, you look at it, `./devgent slice accept S-01`. |
 | 5. Review | reviewer, approver | `./devgent state IN_REVIEW`. The `reviewer` writes findings, the commit it reviewed and a one-screen brief (at most two fix rounds). Findings marked `fix` go back to the implementer; a human decides the ones marked `decide`. Mark the PR ready; a human approves the diff; merge follows the normal process. |
@@ -131,7 +132,8 @@ gh pr ready                              # driver: the approver reviews the diff
 | `./devgent slice start\|review\|accept S-01` | Moves a slice forward. Refuses a second slice while one is in progress or awaiting review. |
 | `./devgent state <STATE> [reason]` | Sets the state on line 1 of `log.md` and logs the change. `BLOCKED` and `ABANDONED` need a reason. |
 | `./devgent check` | Runs the CI gates locally |
-| `./devgent view [--open]` | Writes one HTML page for the ticket and prints its path: what is waiting for a human, the decisions, the plan's diagrams, the requirement-to-test trace, slices against the change map, and the review findings |
+| `./devgent view [--open]` | Writes one HTML page for the ticket and prints its path: what is waiting for a human, the decisions, then the plan layer by layer (functional scenarios, the design with its diagrams, the requirement-to-test trace, slices against the change map), the review findings and the files the plan cites. A bar at the top jumps between sections and every id is a link. |
+| `./devgent view --functional [--open]` | Writes a second page with the functional layer only: problem, requirements, scenarios with the level each is tested at, and the functional questions and decisions. No tests or slices, and no files beyond the evidence a decision cites; nothing to answer or sign. |
 | `./devgent answer D-01 A [note]` | Writes the approver's answer on that decision's `- Answer:` line in `plan.md` |
 | `./devgent override <gate> <reason>` | Records a human override in `log.md` |
 
@@ -139,8 +141,37 @@ gh pr ready                              # driver: the approver reviews the diff
 - Any change to `plan.md` cancels its approval, answers included: commit the answers first, then approve.
 - A T0 ticket carries only a short task note in `plan.md`. The driver approves it and normal PR review covers the diff.
 - Agents may run `status`, `check`, `tier`, `view`, `slice start` and `slice review`. The hook blocks them from `override`, `answer`, `slice accept`, `update` and `install`.
-- Markdown is the record; the page from `view` is generated from it, lives under `.git/devgent/view/` and is never committed. Agents draw Mermaid diagrams in `plan.md` only when a trigger in the template applies. The page loads Mermaid from a CDN to draw them and shows their source when offline.
-- A decision is a `### D-01: question` block in `plan.md` with lettered options, a recommendation and its rationale. CI needs at least two options, a recommendation and the answer.
+- Markdown is the record, for agents and for the approval; the pages from `view` are generated from it for people, live under `.git/devgent/view/` and are never edited or committed. There is no second document to keep in step. Agents draw Mermaid diagrams in `plan.md` only when a trigger in the template applies. The page loads Mermaid from a CDN to draw them and shows their source when offline.
+- A decision is a `### D-01: question` block in `plan.md` with its layer, lettered options, a recommendation and its rationale. CI needs the layer, at least two options, a recommendation and the answer.
+
+### A plan in three layers
+
+A T1 or T2 plan reads at three levels of abstraction, so each reader finds their part without
+wading through the others:
+
+| Layer in `plan.md` | Holds | Read by |
+| --- | --- | --- |
+| `## Functional Scenarios` | Problem and outcome, requirements, scenarios: observable behaviour only | BA, PO, QE |
+| `## High-Level Design` | Current and proposed flow; contracts, data, reliability, security and alternatives when they apply | leads, other developers |
+| `## Low-Level Design` | Change map, test matrix, slices | implementer, reviewer |
+
+The decision list and the open questions sit across the layers; each entry carries a `Layer`
+(`functional`, `high-level` or `low-level`) that says who can clarify it. The reviewer tags each
+plan objection the same way, and the implementer names the layer in a `mismatch` entry, so the
+retrospective shows at which level plans go wrong.
+
+- There is still one plan, one approver and one approval. A BA, PO or QE is shown the functional
+  layer to clarify and to get perspective; they sign nothing. What they settle is recorded by the
+  driver as an answered question, a decision note or a plan revision.
+- The `structure` gate holds the layers apart where a machine can: all three must be written, the
+  functional layer may not reference source files, every scenario must reach a test and a slice,
+  and every decision and question must name its layer. Class and method names in the functional
+  layer are the reviewer's to catch.
+- A T1 change that alters nothing structural says so in one line under `### Proposed flow`. T2
+  also needs `### Current flow` and `### Alternatives`, and the architect writes the functional
+  layer first so it can be shown before the design is built on it.
+- Plans written in the earlier flat layout (`## Requirements`, `## Design`, ...) stay valid: an
+  approved plan is frozen, so the gates and `view` read both layouts.
 
 ### One worktree per ticket
 
@@ -168,7 +199,7 @@ cd ../orders.worktrees/ORD-142 && copilot     # one agent session per ticket
 | Tier floor from path rules; a tier is never lowered without a human override | `tier-floor`, per file written | `tier-floor`, on the final diff, including deleted files |
 | Writes stay inside the one active slice | `slice-paths` | `slice-paths`, per commit, from the `Slice:` trailer |
 | Slice size cap | | `slice-size`: net changed production lines per slice, across its commits |
-| Decisions carry options and a recommendation and are answered, objections dispositioned, plan complete | | `structure` |
+| The plan has its three layers, each at its own level; decisions carry a layer, options and a recommendation and are answered; objections dispositioned; plan complete | | `structure` |
 | The diff was reviewed, and the code has not changed since (T1, T2) | | `review`: `review.md` names the reviewed commit and carries a review brief. Checked once the PR is no longer a draft or the state is `IN_REVIEW`; skipped before that. |
 | Force push, push to the default branch, merge, approve, deploy, publish, production hosts, credential files | `dangerous-action` | Branch protection |
 | Role limits per agent | `role`, when the CLI reports the agent | |

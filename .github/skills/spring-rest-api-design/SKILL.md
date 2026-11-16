@@ -1,6 +1,6 @@
 ---
 name: spring-rest-api-design
-description: Checklist for designing or changing a REST endpoint in a Java / Spring Boot service - contract, status codes, validation, error bodies, idempotency, compatibility. Use when writing the "Scenarios and API contract" or "Design" sections of a plan, or when implementing a controller.
+description: Checklist for designing or changing a REST endpoint in a Java / Spring Boot service - contract, status codes, validation, error bodies, idempotency, compatibility. Use when writing the "Scenarios" or the High-Level Design "Contracts" part of a plan, or when implementing a controller.
 ---
 
 # Spring REST API design

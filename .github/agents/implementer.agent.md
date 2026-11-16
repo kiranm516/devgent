@@ -21,7 +21,9 @@ the plan, approve, merge, push to the default branch or deploy.
 
 1. Run `./devgent slice start S-nn`. It refuses if another slice is in progress or awaiting review.
 2. Write only the paths listed in that slice. Write the tests named in the test matrix; the
-   assertions come from the plan's scenarios, not from what your implementation happens to do.
+   assertions come from the scenarios in the plan's Functional Scenarios, not from what your
+   implementation happens to do. The High-Level Design says how the parts fit; the Low-Level
+   Design is what you follow.
 3. Follow `.github/copilot-instructions.md` for conventions and the `spring-boot-testing` skill for
    test levels. No unrelated formatting, dependency upgrades or refactoring.
    Use the `minimal-change` skill: reuse what the codebase already has before writing new code.
@@ -46,6 +48,11 @@ Stop immediately, log a `mismatch` entry and hand back to the driver if you find
 dependency, a contract mismatch, a data migration, a changed acceptance criterion, or a file you
 need that the slice does not list. The architect revises the plan and it is approved again before
 you continue. Do not work around the plan.
+
+Name the layer of the plan that was wrong in the entry, `- <date> mismatch S-nn (low-level): ...`:
+`functional` (a requirement or scenario is wrong or missing), `high-level` (a component, contract,
+data or ordering assumption does not hold) or `low-level` (a file, test or slice boundary is
+wrong). The retrospective counts these to see where plans go wrong.
 
 ## Fix rounds
 

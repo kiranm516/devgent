@@ -13,6 +13,7 @@ which command moves the ticket on. The service, ticket ids and class names are m
 - [7. Waiting on another team](#7-waiting-on-another-team)
 - [8. Picking a ticket up again](#8-picking-a-ticket-up-again)
 - [9. Two tickets at once](#9-two-tickets-at-once)
+- [10. Showing the scenarios to a BA, PO or QE](#10-showing-the-scenarios-to-a-ba-po-or-qe)
 - [When a gate says no](#when-a-gate-says-no)
 
 ## The people and the agents
@@ -78,8 +79,11 @@ cd ../orders.worktrees/ORD-142
 ./devgent check                        # lists what the plan still lacks
 ```
 
-The plan the architect writes looks like this. The IDs are what the gates read: every `R-nn` needs
-a scenario, every `SC-nn` a named test, every slice its paths, every decision a recommendation.
+The plan the architect writes looks like this. It reads at three levels, each for its own
+reader: **Functional Scenarios** for a BA, PO or QE, **High-Level Design** for leads and other
+developers, **Low-Level Design** for the implementer and the reviewer. The IDs are what the gates
+read: every `R-nn` needs a scenario, every `SC-nn` a named test and a slice, every slice its
+paths, every decision its layer and a recommendation.
 
 ````markdown
 ---
@@ -91,33 +95,45 @@ base_commit: 4be1c07
 
 # Plan: ORD-142
 
-## Problem and outcome
+## Functional Scenarios
+
+### Problem and outcome
 
 Customers call support to cancel orders. They should cancel an unshipped order themselves.
-Out of scope: refunds (handled by billing on the existing `OrderCancelled` event).
+Out of scope: refunds (billing already reacts when an order is cancelled).
 
-## Requirements
+### Requirements
 
 - R-01: The owner of an order can cancel it while its status is `PLACED` or `PAID`.
 - R-02: A shipped order cannot be cancelled; the response is 409.
 - R-03: Another customer's order is reported as 404, never 403.
 
-## Scenarios and API contract
+### Scenarios
+
+| ID | Scenario | Covers | Expected result |
+| --- | --- | --- | --- |
+| SC-01 | Owner cancels a `PAID` order | R-01 | 200, status `CANCELLED`, billing is notified |
+| SC-02 | Owner cancels a `SHIPPED` order | R-02 | 409 `order-not-cancellable` |
+| SC-03 | Customer cancels someone else's order | R-03 | 404 `order-not-found` |
+
+## High-Level Design
+
+### Current flow
+
+Only the admin API can cancel (`OrderAdminController.java:58`). It calls `OrderService.cancel`
+(`OrderService.java:112`), which does not check the status and publishes `OrderCancelled`.
+
+### Proposed flow
+
+A customer endpoint calls the same service method, which gains the status check. The event and
+its consumers are unchanged.
+
+### Contracts
 
 `POST /orders/{id}/cancel`, authenticated customer, no body. Errors use the service's
 `application/problem+json` format (`GlobalExceptionHandler.java:31`).
 
-| ID | Scenario | Covers | Expected result |
-| --- | --- | --- | --- |
-| SC-01 | Owner cancels a `PAID` order | R-01 | 200, status `CANCELLED`, `OrderCancelled` published |
-| SC-02 | Owner cancels a `SHIPPED` order | R-02 | 409 `order-not-cancellable` |
-| SC-03 | Customer cancels someone else's order | R-03 | 404 `order-not-found` |
-
-## Design
-
-Today only `OrderAdminController.java:58` can cancel, through `OrderService.cancel`
-(`OrderService.java:112`), which does not check the status. Proposed: a customer endpoint that
-calls the same method, which gains the status check.
+## Low-Level Design
 
 ### Change map
 
@@ -127,7 +143,7 @@ calls the same method, which gains the status check.
 | `src/main/java/com/acme/orders/OrderController.java` | new endpoint, owner lookup | R-01, R-03 |
 | `README.md` | endpoint list | made stale by the change |
 
-## Test matrix
+### Test matrix
 
 | Scenario | Level | Test |
 | --- | --- | --- |
@@ -135,15 +151,15 @@ calls the same method, which gains the status check.
 | SC-02 | Unit | OrderServiceTest.shippedOrderIsNotCancellable |
 | SC-03 | Web slice | OrderControllerTest.otherCustomersOrderIsNotFound |
 
-## Slices
+### Slices
 
-### S-01: status check in the service
+#### S-01: status check in the service
 - Covers: R-01, R-02, SC-02
 - Paths: `src/main/java/com/acme/orders/OrderService.java`, `src/test/java/com/acme/orders/**`
 - Tests: OrderServiceTest.shippedOrderIsNotCancellable
 - Exit check: `./gradlew test --tests '*OrderServiceTest'` passes
 
-### S-02: customer endpoint
+#### S-02: customer endpoint
 - Covers: R-01, R-03, SC-01, SC-03
 - Paths: `src/main/java/com/acme/orders/OrderController.java`, `src/test/java/com/acme/orders/**`, `README.md`
 - Tests: OrderCancelIT.ownerCancelsPaidOrder, OrderControllerTest.otherCustomersOrderIsNotFound
@@ -152,6 +168,7 @@ calls the same method, which gains the status check.
 ## Decision list
 
 ### D-01: What does cancelling an already cancelled order return?
+- Layer: functional
 - Why a human: it is a promise to the mobile team, who retry on timeouts
 - A: 200 with the cancelled order. Retries are safe; a double tap looks like success.
 - B: 409 `order-not-cancellable`. Stricter, but every client must treat 409 after a retry as success.
@@ -159,6 +176,24 @@ calls the same method, which gains the status check.
 - Reversible: yes, until the endpoint is in the published OpenAPI description
 - Answer:
 ````
+
+The functional layer names no file or class: `./devgent check` rejects a file reference there, so
+the layer can be shown as it is. A T1 change that alters nothing structural may say so in one line
+under `### Proposed flow`; the other parts of the High-Level Design are added only when their
+trigger applies.
+
+### Show the scenarios to the people who know the behaviour (driver)
+
+```bash
+./devgent view --functional --open
+```
+
+This writes a second page with the functional layer alone: the problem, the requirements, each
+scenario with its expected result and the level it is tested at, and the decisions and open
+questions tagged `functional`. It carries no test or slice names, and no file beyond the evidence
+a decision cites. Share your screen or send
+the file to the BA, PO or QE while the plan is still a draft; see
+[use case 10](#10-showing-the-scenarios-to-a-ba-po-or-qe).
 
 ### Approve the plan (approver)
 
@@ -215,10 +250,18 @@ to bottom:
 - **Needs you** lists everything waiting for a human: unanswered decisions, objections without a
   disposition, blocking questions, slices awaiting review, findings marked `decide`.
 - **Decisions** shows each one as a card: the options with their consequences, why it is yours,
-  the recommendation and its rationale, and whether you can change your mind later.
-- **Trace** draws requirement → scenario → test. A red dashed box is a requirement nothing covers
-  or a scenario nothing tests.
-- **Slices** shows which slice may write each file in the change map.
+  the recommendation and its rationale, whether you can change your mind later, and the layer it
+  belongs to, which tells you whom to ask before answering.
+- **Functional scenarios**, **High-level design** and **Low-level design** follow the plan's three
+  layers, from behaviour down to files. The design reads as written, with its diagrams drawn.
+- **Trace**, under the low-level design, draws requirement → scenario → test. A red dashed box is
+  a requirement nothing covers or a scenario nothing tests. **Slices** shows which slice may write
+  each file in the change map.
+- **References** lists every file the plan cites, linked to the plan's base commit on the remote
+  (to the local file when the remote is not a hosted one).
+
+The bar at the top jumps between the sections, and an id such as `SC-02` or `S-01` anywhere on
+the page is a link to where it is shown.
 
 Pick an option on each card, add a note if you want one on record, and press **Copy commands**:
 
@@ -244,14 +287,15 @@ written. Then:
 deployment files, or a breaking API change. `./devgent tier` reports the floor; the scout cannot go
 below it.
 
-A T2 plan adds two things to use case 2:
+A T2 plan adds three things to the High-Level Design of use case 2:
 
-- an `## Alternatives` section with at least one real alternative and why it lost, and
+- a non-empty `### Current flow` next to the proposed one,
+- an `### Alternatives` part with at least one real alternative and why it lost, and
 - a Mermaid diagram wherever a trigger in the template applies. Here the steps must happen in an
   order across two deploys, so the architect draws the order:
 
 ````markdown
-## Data and migration
+### Data and migration
 
 ```mermaid
 flowchart LR
@@ -264,7 +308,11 @@ flowchart LR
 Rollback is safe up to and including the backfill. After V15 the fix is forward only.
 ````
 
-GitHub renders the diagram in the PR, and `./devgent view` renders it next to the decisions. The
+GitHub renders the diagram in the PR, and `./devgent view` draws it in place in the high-level design.
+
+For T2 the architect writes the Functional Scenarios first and says when they are ready to show,
+so a misread requirement is caught before a design stands on it
+([use case 10](#10-showing-the-scenarios-to-a-ba-po-or-qe)). The
 other triggers are a flow across more than two components (sequence diagram) and a new or changed
 state transition (state diagram). The trace and the slice map are generated for you; nobody draws
 those by hand.
@@ -277,8 +325,12 @@ it discovers that `OrderController` has no access to the customer id the plan re
 The implementer stops and logs it; it does not improvise:
 
 ```
-- 2026-11-14 mismatch S-02: OrderController gets no customer id; AuthContext is only wired into the admin API
+- 2026-11-14 mismatch S-02 (high-level): OrderController gets no customer id; AuthContext is only wired into the admin API
 ```
+
+The entry names the layer of the plan that was wrong. Here an assumption about how the components
+fit did not hold, so it is `high-level`; a missing file in a slice would be `low-level`, a wrong
+requirement `functional`.
 
 Then:
 
@@ -287,7 +339,7 @@ Then:
 # "Use the architect agent to revise the plan for the S-02 mismatch"
 ```
 
-The architect edits `plan.md`, raises `plan_version` and logs why. The edit cancels the approval,
+The architect corrects that layer and whatever follows from it below, raises `plan_version` and logs why. The edit cancels the approval,
 so the hook blocks source edits again until the approver has approved the new version. Slices
 already accepted stay accepted.
 
@@ -318,10 +370,13 @@ it instead of guessing:
 ```markdown
 ## Open questions
 
-| ID | Question | Owner | Blocking | Answer source | Status |
-| --- | --- | --- | --- | --- | --- |
-| Q-01 | Does billing refund on `OrderCancelled` for partially paid orders? | Priya (billing) | yes | | open |
+| ID | Question | Layer | Owner | Blocking | Answer source | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| Q-01 | Does billing refund on `OrderCancelled` for partially paid orders? | functional | Priya (billing) | yes | | open |
 ```
+
+The layer says what the answer changes, and so who can give it: `functional` (a BA, PO or QE),
+`high-level` (a lead) or `low-level` (a developer).
 
 ```bash
 ./devgent state BLOCKED "Q-01, waiting on Priya (billing)"
@@ -393,6 +448,41 @@ git -C ~/src/orders worktree remove ~/src/orders.worktrees/ORD-150
 For a quick fix you would rather make in the checkout you are in, `./devgent start ORD-151 --tier T0 --here`
 switches that checkout to the new branch instead of creating a worktree.
 
+## 10. Showing the scenarios to a BA, PO or QE
+
+**Use it when** you want someone who knows the behaviour, not the code, to check that the plan
+understood the ticket, or you need them to clarify a point.
+
+```bash
+./devgent view --functional --open       # prints .git/devgent/view/ORD-142-functional.html
+```
+
+The page holds the plan's Functional Scenarios and nothing below them:
+
+- the problem and what is out of scope, the requirements, and each scenario with its expected
+  result and the level it is tested at (`Unit`, `Integration`, ...), which is what a QE asks first;
+- under **Open points**, the open questions and decisions whose layer is `functional`, with the
+  options and the recommendation, to read and discuss.
+
+It names no test or slice, and no file beyond the evidence a decision cites. Nothing on it is
+answered or signed. It is one
+self-contained file: share your screen, or send it.
+
+Nobody but the approver approves anything. What the conversation settles comes back through you:
+
+| They say | You record it as |
+| --- | --- |
+| "Scenario SC-02 is wrong, shipped orders can be cancelled until dispatch" | a corrected requirement and scenario: ask the architect to revise the plan |
+| "Cancelling twice should not be an error" | the answer source on the open question, or a note on the decision for the approver |
+| "What about gift orders?" | a new open question with layer `functional` and an owner |
+
+Do this while the plan is a draft. After approval any change to `plan.md` cancels the approval, so
+a late clarification costs a new approval; one that arrives anyway goes in `log.md` and, if it
+changes a requirement, back to the architect.
+
+The same split helps inside the team: walk a lead through the High-Level Design in `./devgent view`
+without the file list, and keep the Low-Level Design for the implementer and the diff review.
+
 ## When a gate says no
 
 | Message contains | What it means | What to do |
@@ -402,7 +492,7 @@ switches that checkout to the new branch instead of creating a worktree.
 | `slice-paths` | A write outside the active slice's `Paths` | Wrong slice, or the plan missed a file: see [use case 5](#5-the-plan-turns-out-to-be-wrong) |
 | `tier-floor` | The files touched need a higher tier than the plan declares | Raise the tier in `plan.md` and plan to that tier |
 | `slice-size` | A slice changed more production lines than the cap | Split the slice in the plan |
-| `structure` | The plan or the review is incomplete | `./devgent check` lists each item; `./devgent view` shows the ones that need a human |
+| `structure` | The plan or the review is incomplete, or a layer says something that belongs in another (a file name in the Functional Scenarios) | `./devgent check` lists each item; `./devgent view` shows the ones that need a human |
 | `review` | The diff was not reviewed, or the code changed after the review | Run the reviewer again on the current commit |
 | `dangerous-action` | An agent tried a human-only or destructive command | Run it yourself if it is right; this gate has no override |
 
